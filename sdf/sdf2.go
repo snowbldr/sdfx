@@ -538,10 +538,18 @@ func (s *SliceSDF2) BoundingBox() Box2 {
 //-----------------------------------------------------------------------------
 
 // UnionSDF2 is a union of multiple SDF2 objects.
+//
+// Uses the same bbox pruning strategy as UnionSDF3 — see its comments for
+// the full rationale. The previous implementation used MinMaxDist2 + Overlap
+// checks which involved computing min/max distances for all children upfront
+// and allocating an Interval slice per Evaluate call. The MinDist2 > d*d
+// check is simpler, avoids allocation, and prunes more aggressively.
 type UnionSDF2 struct {
-	sdf []SDF2
-	min MinFunc
-	bb  Box2
+	sdf     []SDF2
+	min     MinFunc
+	bb      Box2
+	boxes   []Box2 // per-child bounding boxes, cached at construction time
+	blended bool   // true after SetMin — disables pruning
 }
 
 // Union2D returns the union of multiple SDF2 objects.
@@ -564,10 +572,13 @@ func Union2D(sdf ...SDF2) SDF2 {
 		// only one sdf - not really a union
 		return s.sdf[0]
 	}
-	// work out the bounding box
+	// work out the bounding box, cache per-child boxes for pruning
+	s.boxes = make([]Box2, len(s.sdf))
 	bb := s.sdf[0].BoundingBox()
-	for _, x := range s.sdf {
-		bb = bb.Extend(x.BoundingBox())
+	s.boxes[0] = bb
+	for i := 1; i < len(s.sdf); i++ {
+		s.boxes[i] = s.sdf[i].BoundingBox()
+		bb = bb.Extend(s.boxes[i])
 	}
 	s.bb = bb
 	s.min = math.Min
@@ -576,55 +587,30 @@ func Union2D(sdf ...SDF2) SDF2 {
 
 // Evaluate returns the minimum distance to the SDF2 union.
 func (s *UnionSDF2) Evaluate(p v2.Vec) float64 {
-
-	// work out the min/max distance for every bounding box
-	vs := make([]Interval, len(s.sdf))
-	minDist2 := -1.0
-	minIndex := 0
-	for i := range s.sdf {
-		vs[i] = s.sdf[i].BoundingBox().MinMaxDist2(p)
-		// as we go record the sdf with the minimum minimum d2 value
-		if minDist2 < 0 || vs[i][0] < minDist2 {
-			minDist2 = vs[i][0]
-			minIndex = i
+	d := s.sdf[0].Evaluate(p)
+	if s.blended {
+		// Blended min: must evaluate all children (see UnionSDF3.Evaluate).
+		for i := 1; i < len(s.sdf); i++ {
+			d = s.min(d, s.sdf[i].Evaluate(p))
 		}
+		return d
 	}
-
-	var d float64
-	first := true
-	for i := range s.sdf {
-		// only an sdf whose min/max distances overlap
-		// the minimum box are worthy of consideration
-		if i == minIndex || vs[minIndex].Overlap(vs[i]) {
-			x := s.sdf[i].Evaluate(p)
-			if first {
-				first = false
-				d = x
-			} else {
-				d = s.min(d, x)
-			}
+	// Hard min with bbox pruning — same logic as UnionSDF3.Evaluate.
+	for i := 1; i < len(s.sdf); i++ {
+		if s.boxes[i].MinDist2(p) > d*d {
+			continue
 		}
-	}
-	return d
-}
-
-// EvaluateSlow returns the minimum distance to the SDF2 union.
-func (s *UnionSDF2) EvaluateSlow(p v2.Vec) float64 {
-	var d float64
-	for i := range s.sdf {
-		x := s.sdf[i].Evaluate(p)
-		if i == 0 {
-			d = x
-		} else {
-			d = s.min(d, x)
-		}
+		d = math.Min(d, s.sdf[i].Evaluate(p))
 	}
 	return d
 }
 
 // SetMin sets the minimum function to control SDF2 blending.
+// Bbox pruning is disabled because blended min functions can produce
+// distances smaller than either input (see UnionSDF3.SetMin).
 func (s *UnionSDF2) SetMin(min MinFunc) {
 	s.min = min
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of an SDF2 union.

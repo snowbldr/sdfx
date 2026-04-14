@@ -160,6 +160,23 @@ func (a Box3) oct7() Box3 {
 	return Box3{ll, ll.Add(delta)}
 }
 
+// MinDist2 returns the squared minimum distance from a point to the box.
+// Returns 0 if the point is inside the box.
+//
+// For each axis, the distance contribution is:
+//   - 0 if the point is between min and max on that axis (inside the slab)
+//   - the gap to the nearest face otherwise
+//
+// Returning squared distance avoids a sqrt and is sufficient for comparisons
+// (used by UnionSDF3 to prune children whose bbox is farther than the
+// current best distance).
+func (a Box3) MinDist2(p v3.Vec) float64 {
+	dx := math.Max(a.Min.X-p.X, math.Max(0, p.X-a.Max.X))
+	dy := math.Max(a.Min.Y-p.Y, math.Max(0, p.Y-a.Max.Y))
+	dz := math.Max(a.Min.Z-p.Z, math.Max(0, p.Z-a.Max.Z))
+	return dx*dx + dy*dy + dz*dz
+}
+
 //-----------------------------------------------------------------------------
 // Minimum/Maximum distances from a point to a box
 
