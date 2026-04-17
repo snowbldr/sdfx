@@ -1037,7 +1037,7 @@ func (s *ArraySDF3) BoundingBox() Box3 {
 type RotateUnionSDF3 struct {
 	sdf     SDF3
 	num     int
-	step    M44
+	mats    []M44 // mats[i] = step^i (inverse), precomputed
 	min     MinFunc
 	blended bool
 	bb      Box3
@@ -1052,8 +1052,14 @@ func RotateUnion3D(sdf SDF3, num int, step M44) SDF3 {
 	s := RotateUnionSDF3{}
 	s.sdf = sdf
 	s.num = num
-	s.step = step.Inverse()
 	s.min = math.Min
+	// precompute inverse rotation powers so Evaluate skips per-call Mul
+	invStep := step.Inverse()
+	s.mats = make([]M44, num)
+	s.mats[0] = Identity3d()
+	for i := 1; i < num; i++ {
+		s.mats[i] = s.mats[i-1].Mul(invStep)
+	}
 	// work out the bounding box
 	v := sdf.BoundingBox().Vertices()
 	bbMin := v[0]
@@ -1070,21 +1076,19 @@ func RotateUnion3D(sdf SDF3, num int, step M44) SDF3 {
 // Evaluate returns the minimum distance to a rotate/union object.
 func (s *RotateUnionSDF3) Evaluate(p v3.Vec) float64 {
 	d := math.MaxFloat64
-	rot := Identity3d()
+	mats := s.mats
 	if s.blended {
-		for i := 0; i < s.num; i++ {
-			x := rot.MulPosition(p)
+		for i := range mats {
+			x := mats[i].MulPosition(p)
 			d = s.min(d, s.sdf.Evaluate(x))
-			rot = rot.Mul(s.step)
 		}
 		return d
 	}
-	for i := 0; i < s.num; i++ {
-		x := rot.MulPosition(p)
+	for i := range mats {
+		x := mats[i].MulPosition(p)
 		if v := s.sdf.Evaluate(x); v < d {
 			d = v
 		}
-		rot = rot.Mul(s.step)
 	}
 	return d
 }
