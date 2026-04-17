@@ -731,12 +731,13 @@ func Union3D(sdf ...SDF3) SDF3 {
 
 // Evaluate returns the minimum distance to an SDF3 union.
 func (s *UnionSDF3) Evaluate(p v3.Vec) float64 {
-	d := s.sdf[0].Evaluate(p)
+	sdfs := s.sdf
+	d := sdfs[0].Evaluate(p)
 	if s.blended {
 		// Blended/smooth min functions can produce distances smaller than
 		// either input, so we can't safely skip any child — evaluate all.
-		for i := 1; i < len(s.sdf); i++ {
-			d = s.min(d, s.sdf[i].Evaluate(p))
+		for i := 1; i < len(sdfs); i++ {
+			d = s.min(d, sdfs[i].Evaluate(p))
 		}
 		return d
 	}
@@ -745,12 +746,13 @@ func (s *UnionSDF3) Evaluate(p v3.Vec) float64 {
 	// (SDF values are always >= distance to the bounding box for exterior
 	// points). The d*d comparison works for both positive d (outside all
 	// children so far) and negative d (inside a child), since d*d = |d|^2.
+	boxes := s.boxes[:len(sdfs)] // tell the compiler boxes[i] is in-range
 	bound := d * d
-	for i := 1; i < len(s.sdf); i++ {
-		if s.boxes[i].MinDist2(p) > bound {
+	for i := 1; i < len(sdfs); i++ {
+		if boxes[i].MinDist2(p) > bound {
 			continue
 		}
-		if v := s.sdf[i].Evaluate(p); v < d {
+		if v := sdfs[i].Evaluate(p); v < d {
 			d = v
 			bound = d * d
 		}
