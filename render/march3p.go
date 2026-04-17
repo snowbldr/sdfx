@@ -173,7 +173,7 @@ func (w *mcWorker) evaluate(vi v3i.Vec) (v3.Vec, float64) {
 // It evaluates the SDF at the cube center: if the absolute distance exceeds
 // the half-diagonal (the farthest any corner can be from the center), the
 // surface cannot intersect this cube and we can skip it entirely.
-func (w *mcWorker) isEmpty(c *cube) bool {
+func (w *mcWorker) isEmpty(c cube) bool {
 	s := 1 << (c.n - 1)
 	_, d := w.evaluate(c.v.AddScalar(s))
 	if d < 0 {
@@ -187,7 +187,12 @@ func (w *mcWorker) isEmpty(c *cube) bool {
 // Triangles are appended to a flat slice (value types, not pointers) to
 // avoid per-triangle heap allocation — the pointer slice required by
 // Triangle3Writer is created once when writing results.
-func (w *mcWorker) processCube(c *cube, tris []sdf.Triangle3) []sdf.Triangle3 {
+//
+// Cube is passed by value (32 bytes). Passing a *cube to the recursive
+// call caused &cube{...} literals to escape to the heap, costing ~12% CPU
+// in runtime.newobject/mallocgc (pprof picorx rhs). Value recursion keeps
+// everything on the stack.
+func (w *mcWorker) processCube(c cube, tris []sdf.Triangle3) []sdf.Triangle3 {
 	if w.isEmpty(c) {
 		return tris
 	}
@@ -211,7 +216,7 @@ func (w *mcWorker) processCube(c *cube, tris []sdf.Triangle3) []sdf.Triangle3 {
 	n := c.n - 1
 	s := 1 << n
 	for _, off := range mcOctreeOffsets(s) {
-		tris = w.processCube(&cube{c.v.Add(off), n}, tris)
+		tris = w.processCube(cube{c.v.Add(off), n}, tris)
 	}
 	return tris
 }
@@ -251,15 +256,24 @@ func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float6
 		}
 	}
 	// Emit triangles from the lookup table.
+	//
+	// Construct each triangle directly in the grown slice instead of building
+	// a stack local and appending. Triangle3 is 72 bytes, so a build-then-append
+	// pattern moves 144 bytes per emit vs 72 for in-place construction. At
+	// >1M triangles per model this append line was 12% CPU (pprof rhs). We
+	// grow the slice first (with a zero value), then either populate in place
+	// or roll back the length if the triangle is degenerate.
 	table := mcTriangleTable[index]
 	count := len(table) / 3
 	for i := 0; i < count; i++ {
-		t := sdf.Triangle3{}
-		t[2] = points[table[i*3+0]]
-		t[1] = points[table[i*3+1]]
-		t[0] = points[table[i*3+2]]
-		if !t.Degenerate(0) {
-			tris = append(tris, t)
+		n := len(tris)
+		tris = append(tris, sdf.Triangle3{})
+		dst := &tris[n]
+		dst[2] = points[table[i*3+0]]
+		dst[1] = points[table[i*3+1]]
+		dst[0] = points[table[i*3+2]]
+		if dst.Degenerate(0) {
+			tris = tris[:n]
 		}
 	}
 	return tris
@@ -272,18 +286,18 @@ func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float6
 // parallel processing. The scout worker's cache warms up during this
 // traversal, but we don't share it with the parallel workers (each gets
 // its own cache to avoid lock contention).
-func collectSubcubes(w *mcWorker, c *cube, targetLevel uint) []cube {
+func collectSubcubes(w *mcWorker, c cube, targetLevel uint) []cube {
 	if w.isEmpty(c) {
 		return nil
 	}
 	if c.n <= targetLevel || c.n == 1 {
-		return []cube{*c}
+		return []cube{c}
 	}
 	n := c.n - 1
 	s := 1 << n
 	var cubes []cube
 	for _, off := range mcOctreeOffsets(s) {
-		cubes = append(cubes, collectSubcubes(w, &cube{c.v.Add(off), n}, targetLevel)...)
+		cubes = append(cubes, collectSubcubes(w, cube{c.v.Add(off), n}, targetLevel)...)
 	}
 	return cubes
 }
@@ -328,7 +342,7 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 		}
 	}
 
-	subcubes := collectSubcubes(scout, &topCube, fanoutLevel)
+	subcubes := collectSubcubes(scout, topCube, fanoutLevel)
 	releaseDirectCache(scout.cache)
 
 	// Phase 2: distribute subcubes across goroutines. Each goroutine gets
@@ -359,7 +373,7 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 			var buf []sdf.Triangle3
 			for idx := range work {
 				start := len(buf)
-				buf = w.processCube(&subcubes[idx], buf)
+				buf = w.processCube(subcubes[idx], buf)
 				spans[idx] = span{worker: wid, start: start, end: len(buf)}
 			}
 			workerBufs[wid] = buf
