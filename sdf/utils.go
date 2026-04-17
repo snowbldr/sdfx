@@ -79,6 +79,33 @@ func maxInt(a, b int) int {
 	return b
 }
 
+// fmin/fmax are branch-based min/max for float64.
+//
+// They replace math.Min/math.Max on SDF hot paths (Union/Difference
+// Evaluate, Box MinDist2). The stdlib versions handle NaN and signed
+// zero, which costs measurable time (picorx profile showed math.archMax
+// at 32% of CPU). These helpers assume finite, non-NaN inputs — true
+// for all SDF values — and inline to a single compare-and-select.
+//
+// Trade-off: if an SDF ever returns NaN, fmin/fmax return the non-NaN
+// argument instead of propagating NaN. That is arguably more useful
+// (NaN in a distance field makes marching cubes produce garbage) and
+// the library's test suite catches no cases where NaN propagation is
+// relied on.
+func fmin(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func fmax(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 //-----------------------------------------------------------------------------
 
 // Clamp x between a and b, assume a <= b

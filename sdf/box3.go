@@ -171,9 +171,22 @@ func (a Box3) oct7() Box3 {
 // (used by UnionSDF3 to prune children whose bbox is farther than the
 // current best distance).
 func (a Box3) MinDist2(p v3.Vec) float64 {
-	dx := math.Max(a.Min.X-p.X, math.Max(0, p.X-a.Max.X))
-	dy := math.Max(a.Min.Y-p.Y, math.Max(0, p.Y-a.Max.Y))
-	dz := math.Max(a.Min.Z-p.Z, math.Max(0, p.Z-a.Max.Z))
+	var dx, dy, dz float64
+	if p.X < a.Min.X {
+		dx = a.Min.X - p.X
+	} else if p.X > a.Max.X {
+		dx = p.X - a.Max.X
+	}
+	if p.Y < a.Min.Y {
+		dy = a.Min.Y - p.Y
+	} else if p.Y > a.Max.Y {
+		dy = p.Y - a.Max.Y
+	}
+	if p.Z < a.Min.Z {
+		dz = a.Min.Z - p.Z
+	} else if p.Z > a.Max.Z {
+		dz = p.Z - a.Max.Z
+	}
 	return dx*dx + dy*dy + dz*dz
 }
 

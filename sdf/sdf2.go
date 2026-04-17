@@ -170,10 +170,11 @@ func (s *OffsetSDF2) BoundingBox() Box2 {
 
 // IntersectionSDF2 is the intersection of two SDF2s.
 type IntersectionSDF2 struct {
-	s0  SDF2
-	s1  SDF2
-	max MaxFunc
-	bb  Box2
+	s0      SDF2
+	s1      SDF2
+	max     MaxFunc
+	blended bool
+	bb      Box2
 }
 
 // Intersect2D returns the intersection of two SDF2s.
@@ -192,12 +193,21 @@ func Intersect2D(s0, s1 SDF2) SDF2 {
 
 // Evaluate returns the minimum distance to the SDF2 intersection.
 func (s *IntersectionSDF2) Evaluate(p v2.Vec) float64 {
-	return s.max(s.s0.Evaluate(p), s.s1.Evaluate(p))
+	a := s.s0.Evaluate(p)
+	b := s.s1.Evaluate(p)
+	if s.blended {
+		return s.max(a, b)
+	}
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // SetMax sets the maximum function to control blending.
 func (s *IntersectionSDF2) SetMax(max MaxFunc) {
 	s.max = max
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of an SDF2 intersection.
@@ -600,7 +610,9 @@ func (s *UnionSDF2) Evaluate(p v2.Vec) float64 {
 		if s.boxes[i].MinDist2(p) > d*d {
 			continue
 		}
-		d = math.Min(d, s.sdf[i].Evaluate(p))
+		if v := s.sdf[i].Evaluate(p); v < d {
+			d = v
+		}
 	}
 	return d
 }
@@ -620,12 +632,16 @@ func (s *UnionSDF2) BoundingBox() Box2 {
 
 //-----------------------------------------------------------------------------
 
-// DifferenceSDF2 is the difference of two SDF2s.
+// DifferenceSDF2 is the difference of two SDF2s, s0 - s1.
+// With the default hard max, the s1 evaluation is skipped when p is
+// far enough from s1's bbox — same pruning rule as DifferenceSDF3.
 type DifferenceSDF2 struct {
-	s0  SDF2
-	s1  SDF2
-	max MaxFunc
-	bb  Box2
+	s0      SDF2
+	s1      SDF2
+	max     MaxFunc
+	bb      Box2
+	s1bb    Box2
+	blended bool
 }
 
 // Difference2D returns the difference of two SDF2 objects, s0 - s1.
@@ -641,17 +657,31 @@ func Difference2D(s0, s1 SDF2) SDF2 {
 	s.s1 = s1
 	s.max = math.Max
 	s.bb = s0.BoundingBox()
+	s.s1bb = s1.BoundingBox()
 	return &s
 }
 
 // Evaluate returns the minimum distance to the difference of two SDF2s.
 func (s *DifferenceSDF2) Evaluate(p v2.Vec) float64 {
-	return s.max(s.s0.Evaluate(p), -s.s1.Evaluate(p))
+	d0 := s.s0.Evaluate(p)
+	if s.blended {
+		return s.max(d0, -s.s1.Evaluate(p))
+	}
+	if s.s1bb.MinDist2(p) > d0*d0 {
+		return d0
+	}
+	d1 := -s.s1.Evaluate(p)
+	if d1 > d0 {
+		return d1
+	}
+	return d0
 }
 
 // SetMax sets the maximum function to control blending.
+// Disables bbox pruning — see DifferenceSDF3.SetMax.
 func (s *DifferenceSDF2) SetMax(max MaxFunc) {
 	s.max = max
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of the difference of two SDF2s.

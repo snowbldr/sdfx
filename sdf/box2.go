@@ -107,11 +107,23 @@ func (a Box2) Equals(b Box2, delta float64) bool {
 // MinDist2 returns the squared minimum distance from a point to the box.
 // Returns 0 if the point is inside the box.
 //
-// Same approach as Box3.MinDist2 but for 2D. Used by UnionSDF2 to skip
-// children whose bounding box cannot produce a closer distance.
+// Used by UnionSDF2 to skip children whose bounding box cannot produce
+// a closer distance — called once per child per evaluation, so this is
+// a very hot path. The explicit branch form avoids three math.Max calls
+// per axis (which profiled at ~32% of total CPU on complex models via
+// runtime.archMax).
 func (a Box2) MinDist2(p v2.Vec) float64 {
-	dx := math.Max(a.Min.X-p.X, math.Max(0, p.X-a.Max.X))
-	dy := math.Max(a.Min.Y-p.Y, math.Max(0, p.Y-a.Max.Y))
+	var dx, dy float64
+	if p.X < a.Min.X {
+		dx = a.Min.X - p.X
+	} else if p.X > a.Max.X {
+		dx = p.X - a.Max.X
+	}
+	if p.Y < a.Min.Y {
+		dy = a.Min.Y - p.Y
+	} else if p.Y > a.Max.Y {
+		dy = p.Y - a.Max.Y
+	}
 	return dx*dx + dy*dy
 }
 

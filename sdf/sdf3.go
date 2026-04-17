@@ -716,7 +716,9 @@ func (s *UnionSDF3) Evaluate(p v3.Vec) float64 {
 		if s.boxes[i].MinDist2(p) > d*d {
 			continue
 		}
-		d = math.Min(d, s.sdf[i].Evaluate(p))
+		if v := s.sdf[i].Evaluate(p); v < d {
+			d = v
+		}
 	}
 	return d
 }
@@ -738,11 +740,18 @@ func (s *UnionSDF3) BoundingBox() Box3 {
 //-----------------------------------------------------------------------------
 
 // DifferenceSDF3 is the difference of two SDF3s, s0 - s1.
+//
+// When using the default hard max (math.Max), Evaluate skips the s1
+// evaluation when p is far enough from s1's bounding box that -s1 can't
+// exceed the current s0 distance. In CAD workflow s1 is typically a
+// small hole or cutout, so this avoids most child evaluations.
 type DifferenceSDF3 struct {
-	s0  SDF3
-	s1  SDF3
-	max MaxFunc
-	bb  Box3
+	s0      SDF3
+	s1      SDF3
+	max     MaxFunc
+	bb      Box3
+	s1bb    Box3 // cached bounding box of s1 for pruning
+	blended bool // true after SetMax — disables pruning
 }
 
 // Difference3D returns the difference of two SDF3s, s0 - s1.
@@ -758,17 +767,36 @@ func Difference3D(s0, s1 SDF3) SDF3 {
 	s.s1 = s1
 	s.max = math.Max
 	s.bb = s0.BoundingBox()
+	s.s1bb = s1.BoundingBox()
 	return &s
 }
 
 // Evaluate returns the minimum distance to the SDF3 difference.
 func (s *DifferenceSDF3) Evaluate(p v3.Vec) float64 {
-	return s.max(s.s0.Evaluate(p), -s.s1.Evaluate(p))
+	d0 := s.s0.Evaluate(p)
+	if s.blended {
+		return s.max(d0, -s.s1.Evaluate(p))
+	}
+	// Hard max pruning. result = max(d0, -d1).
+	// We know d1 >= sqrt(MinDist2(s1.bb, p)) for p outside s1's bbox, so
+	// -d1 <= -sqrt(MinDist2). If MinDist2 > d0*d0, then d1 > |d0|, so
+	// -d1 < d0 whether d0 is positive or negative — result = d0.
+	if s.s1bb.MinDist2(p) > d0*d0 {
+		return d0
+	}
+	d1 := -s.s1.Evaluate(p)
+	if d1 > d0 {
+		return d1
+	}
+	return d0
 }
 
 // SetMax sets the maximum function to control blending.
+// Bbox pruning is disabled because blended max functions can produce
+// distances larger than either input.
 func (s *DifferenceSDF3) SetMax(max MaxFunc) {
 	s.max = max
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of the SDF3 difference.
@@ -816,10 +844,11 @@ func (s *ElongateSDF3) BoundingBox() Box3 {
 
 // IntersectionSDF3 is the intersection of two SDF3s.
 type IntersectionSDF3 struct {
-	s0  SDF3
-	s1  SDF3
-	max MaxFunc
-	bb  Box3
+	s0      SDF3
+	s1      SDF3
+	max     MaxFunc
+	blended bool
+	bb      Box3
 }
 
 // Intersect3D returns the intersection of two SDF3s.
@@ -838,12 +867,21 @@ func Intersect3D(s0, s1 SDF3) SDF3 {
 
 // Evaluate returns the minimum distance to the SDF3 intersection.
 func (s *IntersectionSDF3) Evaluate(p v3.Vec) float64 {
-	return s.max(s.s0.Evaluate(p), s.s1.Evaluate(p))
+	a := s.s0.Evaluate(p)
+	b := s.s1.Evaluate(p)
+	if s.blended {
+		return s.max(a, b)
+	}
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // SetMax sets the maximum function to control blending.
 func (s *IntersectionSDF3) SetMax(max MaxFunc) {
 	s.max = max
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of an SDF3 intersection.
