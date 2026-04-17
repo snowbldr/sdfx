@@ -333,26 +333,38 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 
 	// Phase 2: distribute subcubes across goroutines. Each goroutine gets
 	// its own worker (and therefore its own cache) — no shared mutable state.
-	// Results are stored in a pre-allocated slice indexed by subcube order,
-	// so output ordering is deterministic regardless of processing order.
-	type result struct {
-		tris []sdf.Triangle3
+	//
+	// Each worker appends into one ever-growing buffer across all its subcubes
+	// instead of starting from nil per subcube. A nil-per-subcube approach
+	// runs the slice through ~14 doubling growths each (picorx rhs has ~19k
+	// triangles per subcube), which profiled at 11% CPU in memmove+memclr
+	// from growslice. Sharing the buffer lets allocation amortize across the
+	// worker's entire workload, leaving at most one realloc per worker.
+	// A (workerID, start, end) triplet per subcube preserves subcube-order
+	// output, so STLs stay deterministic.
+	type span struct {
+		worker, start, end int
 	}
-	results := make([]result, len(subcubes))
+	spans := make([]span, len(subcubes))
+	workerBufs := make([][]sdf.Triangle3, nCPU)
 
 	var wg sync.WaitGroup
 	work := make(chan int, len(subcubes))
 
 	for i := 0; i < nCPU; i++ {
 		wg.Add(1)
-		go func() {
+		go func(wid int) {
 			defer wg.Done()
 			w := newMCWorker(s, bb.Min, resolution, levels)
+			var buf []sdf.Triangle3
 			for idx := range work {
-				results[idx].tris = w.processCube(&subcubes[idx], nil)
+				start := len(buf)
+				buf = w.processCube(&subcubes[idx], buf)
+				spans[idx] = span{worker: wid, start: start, end: len(buf)}
 			}
+			workerBufs[wid] = buf
 			releaseDirectCache(w.cache)
-		}()
+		}(i)
 	}
 
 	for i := range subcubes {
@@ -365,14 +377,16 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 	// deterministic output regardless of goroutine scheduling.
 	// Convert from flat value slice to pointer slice as required by
 	// the Triangle3Writer interface.
-	for _, r := range results {
-		if len(r.tris) > 0 {
-			ptrs := make([]*sdf.Triangle3, len(r.tris))
-			for i := range r.tris {
-				ptrs[i] = &r.tris[i]
-			}
-			output.Write(ptrs)
+	for _, sp := range spans {
+		if sp.end == sp.start {
+			continue
 		}
+		tris := workerBufs[sp.worker][sp.start:sp.end]
+		ptrs := make([]*sdf.Triangle3, len(tris))
+		for i := range tris {
+			ptrs[i] = &tris[i]
+		}
+		output.Write(ptrs)
 	}
 	output.Close()
 }
