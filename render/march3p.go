@@ -266,6 +266,17 @@ func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float6
 	table := mcTriangleTable[index]
 	count := len(table) / 3
 	for i := 0; i < count; i++ {
+		// Check degeneracy before writing. Triangle3.Degenerate(0) compares
+		// vertices via math.Abs(x-y) <= 0, which reduces to x == y for normal
+		// floats. Direct struct equality skips the 6 math.Abs calls per
+		// triangle and, on degenerate cases, avoids three 24-byte vertex
+		// writes followed by a truncate.
+		p0 := points[table[i*3+0]]
+		p1 := points[table[i*3+1]]
+		p2 := points[table[i*3+2]]
+		if p0 == p1 || p1 == p2 || p2 == p0 {
+			continue
+		}
 		n := len(tris)
 		if n < cap(tris) {
 			tris = tris[:n+1]
@@ -273,12 +284,9 @@ func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float6
 			tris = append(tris, sdf.Triangle3{})
 		}
 		dst := &tris[n]
-		dst[2] = points[table[i*3+0]]
-		dst[1] = points[table[i*3+1]]
-		dst[0] = points[table[i*3+2]]
-		if dst.Degenerate(0) {
-			tris = tris[:n]
-		}
+		dst[2] = p0
+		dst[1] = p1
+		dst[0] = p2
 	}
 	return tris
 }
