@@ -636,12 +636,14 @@ func (s *UnionSDF2) Evaluate(p v2.Vec) float64 {
 		return d
 	}
 	// Hard min with bbox pruning — same logic as UnionSDF3.Evaluate.
+	bound := d * d
 	for i := 1; i < len(s.sdf); i++ {
-		if s.boxes[i].MinDist2(p) > d*d {
+		if s.boxes[i].MinDist2(p) > bound {
 			continue
 		}
 		if v := s.sdf[i].Evaluate(p); v < d {
 			d = v
+			bound = d * d
 		}
 	}
 	return d
