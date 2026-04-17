@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -20,6 +21,29 @@ import (
 	"github.com/deadsy/sdfx/sdf"
 	v3 "github.com/deadsy/sdfx/vec/v3"
 )
+
+// encodeSTLTriangle writes one 50-byte STL triangle record (12 float32s
+// for normal + 3 vertices, then a 2-byte attribute) directly into buf.
+// Avoids binary.Write's reflection path, which profiled at ~16% of CPU
+// in picorx.lhs. buf must have at least 50 bytes of capacity.
+func encodeSTLTriangle(buf []byte, t *sdf.Triangle3) {
+	le := binary.LittleEndian
+	n := t.Normal()
+	le.PutUint32(buf[0:], math.Float32bits(float32(n.X)))
+	le.PutUint32(buf[4:], math.Float32bits(float32(n.Y)))
+	le.PutUint32(buf[8:], math.Float32bits(float32(n.Z)))
+	le.PutUint32(buf[12:], math.Float32bits(float32(t[0].X)))
+	le.PutUint32(buf[16:], math.Float32bits(float32(t[0].Y)))
+	le.PutUint32(buf[20:], math.Float32bits(float32(t[0].Z)))
+	le.PutUint32(buf[24:], math.Float32bits(float32(t[1].X)))
+	le.PutUint32(buf[28:], math.Float32bits(float32(t[1].Y)))
+	le.PutUint32(buf[32:], math.Float32bits(float32(t[1].Z)))
+	le.PutUint32(buf[36:], math.Float32bits(float32(t[2].X)))
+	le.PutUint32(buf[40:], math.Float32bits(float32(t[2].Y)))
+	le.PutUint32(buf[44:], math.Float32bits(float32(t[2].Z)))
+	buf[48] = 0
+	buf[49] = 0
+}
 
 //-----------------------------------------------------------------------------
 
@@ -141,28 +165,16 @@ func SaveSTL(path string, mesh []*sdf.Triangle3) error {
 	defer file.Close()
 
 	buf := bufio.NewWriter(file)
-	header := STLHeader{}
-	header.Count = uint32(len(mesh))
-	if err := binary.Write(buf, binary.LittleEndian, &header); err != nil {
+	var header [84]byte
+	binary.LittleEndian.PutUint32(header[80:], uint32(len(mesh)))
+	if _, err := buf.Write(header[:]); err != nil {
 		return err
 	}
 
-	var d STLTriangle
+	var rec [50]byte
 	for _, triangle := range mesh {
-		n := triangle.Normal()
-		d.Normal[0] = float32(n.X)
-		d.Normal[1] = float32(n.Y)
-		d.Normal[2] = float32(n.Z)
-		d.Vertex1[0] = float32(triangle[0].X)
-		d.Vertex1[1] = float32(triangle[0].Y)
-		d.Vertex1[2] = float32(triangle[0].Z)
-		d.Vertex2[0] = float32(triangle[1].X)
-		d.Vertex2[1] = float32(triangle[1].Y)
-		d.Vertex2[2] = float32(triangle[1].Z)
-		d.Vertex3[0] = float32(triangle[2].X)
-		d.Vertex3[1] = float32(triangle[2].Y)
-		d.Vertex3[2] = float32(triangle[2].Z)
-		if err := binary.Write(buf, binary.LittleEndian, &d); err != nil {
+		encodeSTLTriangle(rec[:], triangle)
+		if _, err := buf.Write(rec[:]); err != nil {
 			return err
 		}
 	}
@@ -184,9 +196,9 @@ func writeSTL(wg *sync.WaitGroup, path string) (chan<- []*sdf.Triangle3, error) 
 	// The default buffer size doesn't appear to limit performance.
 	buf := bufio.NewWriter(f)
 
-	// write an empty header
-	hdr := STLHeader{}
-	if err := binary.Write(buf, binary.LittleEndian, &hdr); err != nil {
+	// write an empty 84-byte header (80 bytes padding + uint32 count)
+	var zeroHdr [84]byte
+	if _, err := buf.Write(zeroHdr[:]); err != nil {
 		return nil, err
 	}
 
@@ -200,24 +212,12 @@ func writeSTL(wg *sync.WaitGroup, path string) (chan<- []*sdf.Triangle3, error) 
 		defer f.Close()
 
 		var count uint32
-		var d STLTriangle
+		var rec [50]byte
 		// read triangles from the channel and write them to the file
 		for ts := range c {
 			for _, t := range ts {
-				n := t.Normal()
-				d.Normal[0] = float32(n.X)
-				d.Normal[1] = float32(n.Y)
-				d.Normal[2] = float32(n.Z)
-				d.Vertex1[0] = float32(t[0].X)
-				d.Vertex1[1] = float32(t[0].Y)
-				d.Vertex1[2] = float32(t[0].Z)
-				d.Vertex2[0] = float32(t[1].X)
-				d.Vertex2[1] = float32(t[1].Y)
-				d.Vertex2[2] = float32(t[1].Z)
-				d.Vertex3[0] = float32(t[2].X)
-				d.Vertex3[1] = float32(t[2].Y)
-				d.Vertex3[2] = float32(t[2].Z)
-				if err := binary.Write(buf, binary.LittleEndian, &d); err != nil {
+				encodeSTLTriangle(rec[:], t)
+				if _, err := buf.Write(rec[:]); err != nil {
 					fmt.Printf("%s\n", err)
 					return
 				}
@@ -233,8 +233,9 @@ func writeSTL(wg *sync.WaitGroup, path string) (chan<- []*sdf.Triangle3, error) 
 			return
 		}
 		// rewrite the header with the correct mesh count
-		hdr.Count = count
-		if err := binary.Write(f, binary.LittleEndian, &hdr); err != nil {
+		var hdrBytes [84]byte
+		binary.LittleEndian.PutUint32(hdrBytes[80:], count)
+		if _, err := f.Write(hdrBytes[:]); err != nil {
 			fmt.Printf("%s\n", err)
 			return
 		}
