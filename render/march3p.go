@@ -257,17 +257,21 @@ func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float6
 	}
 	// Emit triangles from the lookup table.
 	//
-	// Construct each triangle directly in the grown slice instead of building
-	// a stack local and appending. Triangle3 is 72 bytes, so a build-then-append
-	// pattern moves 144 bytes per emit vs 72 for in-place construction. At
-	// >1M triangles per model this append line was 12% CPU (pprof rhs). We
-	// grow the slice first (with a zero value), then either populate in place
-	// or roll back the length if the triangle is degenerate.
+	// Triangle3 is 72 bytes, so an append of a zero value costs one 72-byte
+	// zero-copy even when capacity is already present (profiled at 26% CPU
+	// on picorx rhs). Extending len without the zero copy requires bypassing
+	// append: if cap allows, we reslice and write fields directly; only the
+	// grow path still uses append. With a pre-sized worker buffer the grow
+	// path is hit on the order of 1-3 times per render.
 	table := mcTriangleTable[index]
 	count := len(table) / 3
 	for i := 0; i < count; i++ {
 		n := len(tris)
-		tris = append(tris, sdf.Triangle3{})
+		if n < cap(tris) {
+			tris = tris[:n+1]
+		} else {
+			tris = append(tris, sdf.Triangle3{})
+		}
 		dst := &tris[n]
 		dst[2] = points[table[i*3+0]]
 		dst[1] = points[table[i*3+1]]
@@ -365,12 +369,18 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 	var wg sync.WaitGroup
 	work := make(chan int, len(subcubes))
 
+	// Pre-size each worker's triangle buffer. Starting from nil incurs
+	// ~7 growslice doublings per worker at picorx rhs scale (150k tris /
+	// worker), each doing memclr + memmove on an ever-larger backing
+	// array. 16k is large enough for most small subcubes and small enough
+	// that idle workers don't waste significant memory.
+	const initialTriCap = 16384
 	for i := 0; i < nCPU; i++ {
 		wg.Add(1)
 		go func(wid int) {
 			defer wg.Done()
 			w := newMCWorker(s, bb.Min, resolution, levels)
-			var buf []sdf.Triangle3
+			buf := make([]sdf.Triangle3, 0, initialTriCap)
 			for idx := range work {
 				start := len(buf)
 				buf = w.processCube(subcubes[idx], buf)
