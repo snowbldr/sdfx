@@ -109,21 +109,11 @@ func (a Box2) Equals(b Box2, delta float64) bool {
 //
 // Used by UnionSDF2 to skip children whose bounding box cannot produce
 // a closer distance — called once per child per evaluation, so this is
-// a very hot path. The explicit branch form avoids three math.Max calls
-// per axis (which profiled at ~32% of total CPU on complex models via
-// runtime.archMax).
+// a very hot path. Using the built-in max avoids math.Max's archMax /
+// NaN handling (which profiled at ~32% of total CPU on complex models).
 func (a Box2) MinDist2(p v2.Vec) float64 {
-	var dx, dy float64
-	if p.X < a.Min.X {
-		dx = a.Min.X - p.X
-	} else if p.X > a.Max.X {
-		dx = p.X - a.Max.X
-	}
-	if p.Y < a.Min.Y {
-		dy = a.Min.Y - p.Y
-	} else if p.Y > a.Max.Y {
-		dy = p.Y - a.Max.Y
-	}
+	dx := max(a.Min.X-p.X, p.X-a.Max.X, 0)
+	dy := max(a.Min.Y-p.Y, p.Y-a.Max.Y, 0)
 	return dx*dx + dy*dy
 }
 

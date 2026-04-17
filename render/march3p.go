@@ -59,12 +59,37 @@ type directCache struct {
 	mask    int // size - 1, for fast modulo via bitwise AND
 }
 
-func newDirectCache(bits uint) *directCache {
-	size := 1 << bits
-	return &directCache{
-		entries: make([]cacheEntry, size),
-		mask:    size - 1,
-	}
+// directCacheBits controls the cache size: 1<<bits entries (16 bytes each).
+// 18 → 256K entries, 4MB per worker. Large enough for good hit rates on
+// complex models, small enough to stay in L3 cache per core.
+const directCacheBits = 18
+
+// directCachePool recycles directCache backing arrays across renders and
+// workers. Each render allocates one cache per CPU (~4MB each); without
+// pooling a multi-render pipeline like examples/picorx churns ~200MB of
+// transient allocations that show up as runtime.madvise in pprof.
+var directCachePool = sync.Pool{
+	New: func() any {
+		size := 1 << directCacheBits
+		return &directCache{
+			entries: make([]cacheEntry, size),
+			mask:    size - 1,
+		}
+	},
+}
+
+// acquireDirectCache returns a zeroed directCache from the pool. Zeroing
+// is required for correctness: if a stale entry's packed key happens to
+// match a new lookup, get() would return a wrong distance. 4MB memclr is
+// ~0.13ms per worker and is paid once per render.
+func acquireDirectCache() *directCache {
+	c := directCachePool.Get().(*directCache)
+	clear(c.entries)
+	return c
+}
+
+func releaseDirectCache(c *directCache) {
+	directCachePool.Put(c)
 }
 
 // packVec packs 3 grid coordinates into a single uint64 key.
@@ -119,9 +144,7 @@ func newMCWorker(s sdf.SDF3, origin v3.Vec, resolution float64, levels uint) *mc
 		resolution: resolution,
 		hdiag:      make([]float64, levels),
 		s:          s,
-		// 18 bits = 256K entries = ~4MB. Large enough for good hit rates on
-		// typical models, small enough to stay in L3 cache per core.
-		cache: newDirectCache(18),
+		cache:      acquireDirectCache(),
 	}
 	// Precompute the half-diagonal distance for cubes at each octree level.
 	// Used by isEmpty to determine if a cube can possibly contain the surface.
@@ -306,6 +329,7 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 	}
 
 	subcubes := collectSubcubes(scout, &topCube, fanoutLevel)
+	releaseDirectCache(scout.cache)
 
 	// Phase 2: distribute subcubes across goroutines. Each goroutine gets
 	// its own worker (and therefore its own cache) — no shared mutable state.
@@ -327,6 +351,7 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 			for idx := range work {
 				results[idx].tris = w.processCube(&subcubes[idx], nil)
 			}
+			releaseDirectCache(w.cache)
 		}()
 	}
 

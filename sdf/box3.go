@@ -163,30 +163,16 @@ func (a Box3) oct7() Box3 {
 // MinDist2 returns the squared minimum distance from a point to the box.
 // Returns 0 if the point is inside the box.
 //
-// For each axis, the distance contribution is:
-//   - 0 if the point is between min and max on that axis (inside the slab)
-//   - the gap to the nearest face otherwise
-//
-// Returning squared distance avoids a sqrt and is sufficient for comparisons
-// (used by UnionSDF3 to prune children whose bbox is farther than the
-// current best distance).
+// Per axis we take the larger of (min-p) and (p-max); exactly one is
+// non-negative when p is outside the slab, both are non-positive when
+// p is inside, so clamping to 0 gives the slab gap. The flat style
+// (vs nested if/else) keeps inliner cost under budget — critical
+// because UnionSDF3 / DifferenceSDF3 call this once per child per
+// evaluation on the rendering hot path.
 func (a Box3) MinDist2(p v3.Vec) float64 {
-	var dx, dy, dz float64
-	if p.X < a.Min.X {
-		dx = a.Min.X - p.X
-	} else if p.X > a.Max.X {
-		dx = p.X - a.Max.X
-	}
-	if p.Y < a.Min.Y {
-		dy = a.Min.Y - p.Y
-	} else if p.Y > a.Max.Y {
-		dy = p.Y - a.Max.Y
-	}
-	if p.Z < a.Min.Z {
-		dz = a.Min.Z - p.Z
-	} else if p.Z > a.Max.Z {
-		dz = p.Z - a.Max.Z
-	}
+	dx := max(a.Min.X-p.X, p.X-a.Max.X, 0)
+	dy := max(a.Min.Y-p.Y, p.Y-a.Max.Y, 0)
+	dz := max(a.Min.Z-p.Z, p.Z-a.Max.Z, 0)
 	return dx*dx + dy*dy + dz*dz
 }
 
