@@ -258,13 +258,14 @@ func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float6
 		}
 	}
 	// No edges crossed — cube is entirely inside or outside the surface.
-	if mcEdgeTable[index] == 0 {
+	edges := mcEdgeTable[index]
+	if edges == 0 {
 		return tris
 	}
 	// Interpolate surface crossing points along each active edge.
 	var points [12]v3.Vec
 	for i := 0; i < 12; i++ {
-		if mcEdgeTable[index]&(1<<uint(i)) != 0 {
+		if edges&(1<<uint(i)) != 0 {
 			a := mcPairTable[i][0]
 			b := mcPairTable[i][1]
 			points[i] = mcInterpolate(p[a], p[b], v[a], v[b], x)
@@ -424,16 +425,29 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 	// deterministic output regardless of goroutine scheduling.
 	// Convert from flat value slice to pointer slice as required by
 	// the Triangle3Writer interface.
+	//
+	// All spans share one backing pointer slice, sub-sliced per Write, so
+	// we pay one allocation instead of one per span. Triangle3Buffer.Write
+	// copies the pointer values into its internal buffer, so segments are
+	// safe to sub-slice without lifetime concerns.
+	total := 0
 	for _, sp := range spans {
-		if sp.end == sp.start {
+		total += sp.end - sp.start
+	}
+	allPtrs := make([]*sdf.Triangle3, total)
+	off := 0
+	for _, sp := range spans {
+		n := sp.end - sp.start
+		if n == 0 {
 			continue
 		}
 		tris := workerBufs[sp.worker][sp.start:sp.end]
-		ptrs := make([]*sdf.Triangle3, len(tris))
+		segment := allPtrs[off : off+n]
 		for i := range tris {
-			ptrs[i] = &tris[i]
+			segment[i] = &tris[i]
 		}
-		output.Write(ptrs)
+		off += n
+		output.Write(segment)
 	}
 	output.Close()
 }
