@@ -241,7 +241,12 @@ func Cut2D(sdf SDF2, a, v v2.Vec) SDF2 {
 
 // Evaluate returns the minimum distance to cut SDF2.
 func (s *CutSDF2) Evaluate(p v2.Vec) float64 {
-	return math.Max(p.Sub(s.a).Dot(s.n), s.sdf.Evaluate(p))
+	a := p.Sub(s.a).Dot(s.n)
+	b := s.sdf.Evaluate(p)
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // BoundingBox returns the bounding box for the cut SDF2.
@@ -335,11 +340,12 @@ func CenterAndScale2D(s SDF2, k float64) SDF2 {
 
 // ArraySDF2 defines an XY grid array of an existing SDF2.
 type ArraySDF2 struct {
-	sdf  SDF2
-	num  v2i.Vec // grid size
-	step v2.Vec  // grid step size
-	min  MinFunc
-	bb   Box2
+	sdf     SDF2
+	num     v2i.Vec // grid size
+	step    v2.Vec  // grid step size
+	min     MinFunc
+	blended bool
+	bb      Box2
 }
 
 // Array2D returns an XY grid array of an existing SDF2.
@@ -363,15 +369,27 @@ func Array2D(sdf SDF2, num v2i.Vec, step v2.Vec) SDF2 {
 // SetMin sets the minimum function to control blending.
 func (s *ArraySDF2) SetMin(min MinFunc) {
 	s.min = min
+	s.blended = true
 }
 
 // Evaluate returns the minimum distance to a grid array of SDF2s.
 func (s *ArraySDF2) Evaluate(p v2.Vec) float64 {
 	d := math.MaxFloat64
+	if s.blended {
+		for j := 0; j < s.num.X; j++ {
+			for k := 0; k < s.num.Y; k++ {
+				x := p.Sub(v2.Vec{float64(j) * s.step.X, float64(k) * s.step.Y})
+				d = s.min(d, s.sdf.Evaluate(x))
+			}
+		}
+		return d
+	}
 	for j := 0; j < s.num.X; j++ {
 		for k := 0; k < s.num.Y; k++ {
 			x := p.Sub(v2.Vec{float64(j) * s.step.X, float64(k) * s.step.Y})
-			d = s.min(d, s.sdf.Evaluate(x))
+			if v := s.sdf.Evaluate(x); v < d {
+				d = v
+			}
 		}
 	}
 	return d
@@ -386,11 +404,12 @@ func (s *ArraySDF2) BoundingBox() Box2 {
 
 // RotateUnionSDF2 defines a union of rotated SDF2s.
 type RotateUnionSDF2 struct {
-	sdf  SDF2
-	num  int
-	step M33
-	min  MinFunc
-	bb   Box2
+	sdf     SDF2
+	num     int
+	step    M33
+	min     MinFunc
+	blended bool
+	bb      Box2
 }
 
 // RotateUnion2D returns a union of rotated SDF2s.
@@ -421,9 +440,19 @@ func RotateUnion2D(sdf SDF2, num int, step M33) SDF2 {
 func (s *RotateUnionSDF2) Evaluate(p v2.Vec) float64 {
 	d := math.MaxFloat64
 	rot := Identity2d()
+	if s.blended {
+		for i := 0; i < s.num; i++ {
+			x := rot.MulPosition(p)
+			d = s.min(d, s.sdf.Evaluate(x))
+			rot = rot.Mul(s.step)
+		}
+		return d
+	}
 	for i := 0; i < s.num; i++ {
 		x := rot.MulPosition(p)
-		d = s.min(d, s.sdf.Evaluate(x))
+		if v := s.sdf.Evaluate(x); v < d {
+			d = v
+		}
 		rot = rot.Mul(s.step)
 	}
 	return d
@@ -432,6 +461,7 @@ func (s *RotateUnionSDF2) Evaluate(p v2.Vec) float64 {
 // SetMin sets the minimum function to control blending.
 func (s *RotateUnionSDF2) SetMin(min MinFunc) {
 	s.min = min
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of a union of rotated SDF2s.

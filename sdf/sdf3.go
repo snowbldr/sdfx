@@ -205,12 +205,16 @@ func ScaleTwistExtrude3D(sdf SDF2, height, twist float64, scale v2.Vec) SDF3 {
 
 // Evaluate returns the minimum distance to an extrusion.
 func (s *ExtrudeSDF3) Evaluate(p v3.Vec) float64 {
-	// sdf for the projected 2d surface
 	a := s.sdf.Evaluate(s.extrude(p))
-	// sdf for the extrusion region: z = [-height, height]
-	b := math.Abs(p.Z) - s.height
-	// return the intersection
-	return math.Max(a, b)
+	z := p.Z
+	if z < 0 {
+		z = -z
+	}
+	b := z - s.height
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // SetExtrude sets the extrusion control function.
@@ -267,26 +271,27 @@ func ExtrudeRounded3D(sdf SDF2, height, round float64) (SDF3, error) {
 
 // Evaluate returns the minimum distance to a rounded extrusion.
 func (s *ExtrudeRoundedSDF3) Evaluate(p v3.Vec) float64 {
-	// sdf for the projected 2d surface
 	a := s.sdf.Evaluate(v2.Vec{p.X, p.Y})
-	b := math.Abs(p.Z) - s.height
+	z := p.Z
+	if z < 0 {
+		z = -z
+	}
+	b := z - s.height
 	var d float64
 	if b > 0 {
-		// outside the object Z extent
 		if a < 0 {
-			// inside the boundary
 			d = b
 		} else {
-			// outside the boundary
 			d = math.Sqrt((a * a) + (b * b))
 		}
 	} else {
-		// within the object Z extent
 		if a < 0 {
-			// inside the boundary
-			d = math.Max(a, b)
+			if a > b {
+				d = a
+			} else {
+				d = b
+			}
 		} else {
-			// outside the boundary
 			d = a
 		}
 	}
@@ -343,31 +348,31 @@ func Loft3D(sdf0, sdf1 SDF2, height, round float64) (SDF3, error) {
 
 // Evaluate returns the minimum distance to a loft extrusion.
 func (s *LoftSDF3) Evaluate(p v3.Vec) float64 {
-	// work out the mix value as a function of height
 	k := Clamp((0.5*p.Z/s.height)+0.5, 0, 1)
-	// mix the 2D SDFs
 	a0 := s.sdf0.Evaluate(v2.Vec{p.X, p.Y})
 	a1 := s.sdf1.Evaluate(v2.Vec{p.X, p.Y})
 	a := Mix(a0, a1, k)
 
-	b := math.Abs(p.Z) - s.height
+	z := p.Z
+	if z < 0 {
+		z = -z
+	}
+	b := z - s.height
 	var d float64
 	if b > 0 {
-		// outside the object Z extent
 		if a < 0 {
-			// inside the boundary
 			d = b
 		} else {
-			// outside the boundary
 			d = math.Sqrt((a * a) + (b * b))
 		}
 	} else {
-		// within the object Z extent
 		if a < 0 {
-			// inside the boundary
-			d = math.Max(a, b)
+			if a > b {
+				d = a
+			} else {
+				d = b
+			}
 		} else {
-			// outside the boundary
 			d = a
 		}
 	}
@@ -913,7 +918,12 @@ func Cut3D(sdf SDF3, a, n v3.Vec) SDF3 {
 
 // Evaluate returns the minimum distance to the cut SDF3.
 func (s *CutSDF3) Evaluate(p v3.Vec) float64 {
-	return math.Max(p.Sub(s.a).Dot(s.n), s.sdf.Evaluate(p))
+	a := p.Sub(s.a).Dot(s.n)
+	b := s.sdf.Evaluate(p)
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // BoundingBox returns the bounding box of the cut SDF3.
@@ -925,11 +935,12 @@ func (s *CutSDF3) BoundingBox() Box3 {
 
 // ArraySDF3 stores an XYZ array of a given SDF3
 type ArraySDF3 struct {
-	sdf  SDF3
-	num  v3i.Vec
-	step v3.Vec
-	min  MinFunc
-	bb   Box3
+	sdf     SDF3
+	num     v3i.Vec
+	step    v3.Vec
+	min     MinFunc
+	blended bool
+	bb      Box3
 }
 
 // Array3D returns an XYZ array of a given SDF3
@@ -953,16 +964,30 @@ func Array3D(sdf SDF3, num v3i.Vec, step v3.Vec) SDF3 {
 // SetMin sets the minimum function to control blending.
 func (s *ArraySDF3) SetMin(min MinFunc) {
 	s.min = min
+	s.blended = true
 }
 
 // Evaluate returns the minimum distance to an XYZ SDF3 array.
 func (s *ArraySDF3) Evaluate(p v3.Vec) float64 {
 	d := math.MaxFloat64
+	if s.blended {
+		for j := 0; j < s.num.X; j++ {
+			for k := 0; k < s.num.Y; k++ {
+				for l := 0; l < s.num.Z; l++ {
+					x := p.Sub(v3.Vec{float64(j) * s.step.X, float64(k) * s.step.Y, float64(l) * s.step.Z})
+					d = s.min(d, s.sdf.Evaluate(x))
+				}
+			}
+		}
+		return d
+	}
 	for j := 0; j < s.num.X; j++ {
 		for k := 0; k < s.num.Y; k++ {
 			for l := 0; l < s.num.Z; l++ {
 				x := p.Sub(v3.Vec{float64(j) * s.step.X, float64(k) * s.step.Y, float64(l) * s.step.Z})
-				d = s.min(d, s.sdf.Evaluate(x))
+				if v := s.sdf.Evaluate(x); v < d {
+					d = v
+				}
 			}
 		}
 	}
@@ -978,11 +1003,12 @@ func (s *ArraySDF3) BoundingBox() Box3 {
 
 // RotateUnionSDF3 creates a union of SDF3s rotated about the z-axis.
 type RotateUnionSDF3 struct {
-	sdf  SDF3
-	num  int
-	step M44
-	min  MinFunc
-	bb   Box3
+	sdf     SDF3
+	num     int
+	step    M44
+	min     MinFunc
+	blended bool
+	bb      Box3
 }
 
 // RotateUnion3D creates a union of SDF3s rotated about the z-axis.
@@ -1013,9 +1039,19 @@ func RotateUnion3D(sdf SDF3, num int, step M44) SDF3 {
 func (s *RotateUnionSDF3) Evaluate(p v3.Vec) float64 {
 	d := math.MaxFloat64
 	rot := Identity3d()
+	if s.blended {
+		for i := 0; i < s.num; i++ {
+			x := rot.MulPosition(p)
+			d = s.min(d, s.sdf.Evaluate(x))
+			rot = rot.Mul(s.step)
+		}
+		return d
+	}
 	for i := 0; i < s.num; i++ {
 		x := rot.MulPosition(p)
-		d = s.min(d, s.sdf.Evaluate(x))
+		if v := s.sdf.Evaluate(x); v < d {
+			d = v
+		}
 		rot = rot.Mul(s.step)
 	}
 	return d
@@ -1024,6 +1060,7 @@ func (s *RotateUnionSDF3) Evaluate(p v3.Vec) float64 {
 // SetMin sets the minimum function to control blending.
 func (s *RotateUnionSDF3) SetMin(min MinFunc) {
 	s.min = min
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of a rotate/union object.

@@ -153,7 +153,10 @@ func (w *mcWorker) evaluate(vi v3i.Vec) (v3.Vec, float64) {
 func (w *mcWorker) isEmpty(c *cube) bool {
 	s := 1 << (c.n - 1)
 	_, d := w.evaluate(c.v.AddScalar(s))
-	return math.Abs(d) >= w.hdiag[c.n]
+	if d < 0 {
+		d = -d
+	}
+	return d >= w.hdiag[c.n]
 }
 
 // processCube recursively subdivides the octree. At the leaf level (n==1),
