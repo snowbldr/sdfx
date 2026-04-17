@@ -593,17 +593,31 @@ type UnionSDF2 struct {
 }
 
 // Union2D returns the union of multiple SDF2 objects.
+//
+// Nested un-blended Union2D children are spliced into the parent at
+// construction time. This matters because the common "panel of holes"
+// pattern (obj.Panel2D calls Union2D(Union2D, Union2D, …)) builds a 2-level
+// tree whose inner unions have badly overlapping bboxes, so hierarchical
+// pruning barely fires. A single flat loop with tight per-hole bboxes
+// prunes effectively and saves one interface dispatch per outer iteration.
+// Flattening is skipped if a child has a custom min (blended), since
+// blended mins must see all children.
 func Union2D(sdf ...SDF2) SDF2 {
 	if len(sdf) == 0 {
 		return nil
 	}
 	s := UnionSDF2{}
-	// strip out any nils
+	// strip out any nils; flatten nested plain-min Union2D children.
 	s.sdf = make([]SDF2, 0, len(sdf))
 	for _, x := range sdf {
-		if x != nil {
-			s.sdf = append(s.sdf, x)
+		if x == nil {
+			continue
 		}
+		if u, ok := x.(*UnionSDF2); ok && !u.blended {
+			s.sdf = append(s.sdf, u.sdf...)
+			continue
+		}
+		s.sdf = append(s.sdf, x)
 	}
 	if len(s.sdf) == 0 {
 		return nil
