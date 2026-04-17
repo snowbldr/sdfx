@@ -29,6 +29,7 @@ import (
 	"math"
 	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"github.com/deadsy/sdfx/sdf"
 	"github.com/deadsy/sdfx/vec/conv"
@@ -391,7 +392,13 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 	workerBufs := make([][]sdf.Triangle3, nCPU)
 
 	var wg sync.WaitGroup
-	work := make(chan int, len(subcubes))
+
+	// Work dispatch via shared atomic counter: each worker fetch-adds to
+	// claim the next subcube index. Avoids channel mutex/sudog overhead that
+	// profiled at ~5% of render wall time for the panel benchmark at 400
+	// mesh cells. The loop terminates when the counter passes len(subcubes).
+	var nextIdx atomic.Int64
+	nSubcubes := int64(len(subcubes))
 
 	// Pre-size each worker's triangle buffer. Starting from nil incurs
 	// ~7 growslice doublings per worker at picorx rhs scale (150k tris /
@@ -405,7 +412,11 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 			defer wg.Done()
 			w := newMCWorker(s, bb.Min, resolution, levels)
 			buf := make([]sdf.Triangle3, 0, initialTriCap)
-			for idx := range work {
+			for {
+				idx := nextIdx.Add(1) - 1
+				if idx >= nSubcubes {
+					break
+				}
 				start := len(buf)
 				buf = w.processCube(subcubes[idx], buf)
 				spans[idx] = span{worker: wid, start: start, end: len(buf)}
@@ -414,11 +425,6 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 			releaseDirectCache(w.cache)
 		}(i)
 	}
-
-	for i := range subcubes {
-		work <- i
-	}
-	close(work)
 	wg.Wait()
 
 	// Phase 3: write triangles in subcube index order. This produces
