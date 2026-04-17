@@ -669,28 +669,17 @@ type UnionSDF3 struct {
 }
 
 // Union3D returns the union of multiple SDF3 objects.
-//
-// Nested un-blended Union3D children are spliced into the parent. See the
-// Union2D comment for the rationale — the same two-level union pattern
-// appears in 3D (e.g. multiple assemblies unioned together), and flattening
-// lets per-object bboxes prune directly instead of being hidden behind a
-// wide enclosing bbox.
 func Union3D(sdf ...SDF3) SDF3 {
 	if len(sdf) == 0 {
 		return nil
 	}
 	s := UnionSDF3{}
-	// strip out any nils; flatten nested plain-min Union3D children.
+	// strip out any nils
 	s.sdf = make([]SDF3, 0, len(sdf))
 	for _, x := range sdf {
-		if x == nil {
-			continue
+		if x != nil {
+			s.sdf = append(s.sdf, x)
 		}
-		if u, ok := x.(*UnionSDF3); ok && !u.blended {
-			s.sdf = append(s.sdf, u.sdf...)
-			continue
-		}
-		s.sdf = append(s.sdf, x)
 	}
 	if len(s.sdf) == 0 {
 		return nil
