@@ -53,13 +53,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(arm, shrink), "arm.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(sdf.ScaleUniform3D(arm, shrink), "arm.stl", render.NewMarchingCubesOctreeParallel(300))
 
 	socket, err := obj.DroneMotorArmSocket(&kSocket)
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(socket, shrink), "socket.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(sdf.ScaleUniform3D(socket, shrink), "socket.stl", render.NewMarchingCubesOctreeParallel(300))
 
 }
 

@@ -31,15 +31,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(cp, scale), "cylinder_pattern.stl", render.NewMarchingCubesOctree(330))
+	render.ToSTL(sdf.ScaleUniform3D(cp, scale), "cylinder_pattern.stl", render.NewMarchingCubesOctreeParallel(330))
 
 	ccfp, err := ccFrontPattern()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(ccfp, scale), "crankcase_front.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(sdf.ScaleUniform3D(ccfp, scale), "crankcase_front.stl", render.NewMarchingCubesOctreeParallel(300))
 
-	//render.ToSTL(sdf.ScaleUniform3D(cylinderCoreBox(), shrink), "cylinder_corebox.stl", render.NewMarchingCubesOctree(330))
+	//render.ToSTL(sdf.ScaleUniform3D(cylinderCoreBox(), shrink), "cylinder_corebox.stl", render.NewMarchingCubesOctreeParallel(330))
 }
 
 //-----------------------------------------------------------------------------

@@ -138,7 +138,7 @@ func main() {
 		bb := screw.BoundingBox()
 		r := bb.Max.X
 
-		tris := render.CollectTriangles(screw, render.NewMarchingCubesOctree(meshCells))
+		tris := render.CollectTriangles(screw, render.NewMarchingCubesOctreeParallel(meshCells))
 		be := render.CountBoundaryEdges(tris)
 
 		status := "PASS"

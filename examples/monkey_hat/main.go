@@ -61,7 +61,7 @@ func main() {
 		log.Fatalf("error: %s", err)
 	}
 	render.ToSTL(monkeyHat, "monkey-out.stl", render.NewMarchingCubesUniform(128))
-	//render.ToSTL(monkeyHat, "monkey-out.stl", render.NewMarchingCubesOctree(128))
+	//render.ToSTL(monkeyHat, "monkey-out.stl", render.NewMarchingCubesOctreeParallel(128))
 	//render.ToSTL(monkeyHat, 64, "monkey-out.stl", dc.NewDualContouringDefault())
 }
 

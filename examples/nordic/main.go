@@ -201,13 +201,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(nRF52dk, shrink), "nrf52dk.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(sdf.ScaleUniform3D(nRF52dk, shrink), "nrf52dk.stl", render.NewMarchingCubesOctreeParallel(300))
 
 	nRF52833dk, err := nRF52833dk()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(nRF52833dk, shrink), "nrf52833dk.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(sdf.ScaleUniform3D(nRF52833dk, shrink), "nrf52833dk.stl", render.NewMarchingCubesOctreeParallel(300))
 }
 
 //-----------------------------------------------------------------------------
