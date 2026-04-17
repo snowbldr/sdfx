@@ -382,37 +382,36 @@ func Polygon2D(vertex []v2.Vec) (SDF2, error) {
 
 const meshFlatThreshold = 64
 
-// flatMeshSDF2 stores pre-computed per-segment data in flat parallel arrays.
-// This layout ensures that iterating over all segments reads memory
-// sequentially, maximizing CPU cache line utilization.
+// flatSeg packs one polygon edge into a cache-friendly 40-byte record:
+// start point (ax, ay), direction vector (dx, dy), and 1/length.
+// Storing segments as an array of structs (vs parallel slices) reduces
+// pointer chases from 5 per iteration to 1, which matters because
+// flatMeshSDF2.Evaluate is the bottom of very hot SDF3 stacks
+// (Extrude2D → Polygon2D → Evaluate; profiled at 13% flat CPU).
+type flatSeg struct {
+	ax, ay, dx, dy, invLen float64
+}
+
+// flatMeshSDF2 scans all segments per Evaluate, so we keep them contiguous.
 type flatMeshSDF2 struct {
-	ax, ay []float64 // segment start points
-	dx, dy []float64 // segment direction vectors (end - start)
-	invLen []float64 // 1.0 / segment length (precomputed to avoid division in Evaluate)
-	n      int
-	bb     Box2
+	segs []flatSeg
+	bb   Box2
 }
 
 func newFlatMesh(lSet []*Line2, bb Box2) *flatMeshSDF2 {
-	n := len(lSet)
 	f := &flatMeshSDF2{
-		ax:     make([]float64, n),
-		ay:     make([]float64, n),
-		dx:     make([]float64, n),
-		dy:     make([]float64, n),
-		invLen: make([]float64, n),
-		n:      n,
-		bb:     bb,
+		segs: make([]flatSeg, len(lSet)),
+		bb:   bb,
 	}
 	for i, l := range lSet {
-		f.ax[i] = l[0].X
-		f.ay[i] = l[0].Y
-		f.dx[i] = l[1].X - l[0].X
-		f.dy[i] = l[1].Y - l[0].Y
-		length := math.Sqrt(f.dx[i]*f.dx[i] + f.dy[i]*f.dy[i])
+		dx := l[1].X - l[0].X
+		dy := l[1].Y - l[0].Y
+		length := math.Sqrt(dx*dx + dy*dy)
+		var invLen float64
 		if length > 0 {
-			f.invLen[i] = 1.0 / length
+			invLen = 1.0 / length
 		}
+		f.segs[i] = flatSeg{ax: l[0].X, ay: l[0].Y, dx: dx, dy: dy, invLen: invLen}
 	}
 	return f
 }
@@ -427,56 +426,41 @@ func (f *flatMeshSDF2) Evaluate(pt v2.Vec) float64 {
 	minD2 := math.MaxFloat64
 	wn := 0
 
-	for i := 0; i < f.n; i++ {
-		// Vector from segment start to query point.
-		ex := px - f.ax[i]
-		ey := py - f.ay[i]
-		ddx, ddy := f.dx[i], f.dy[i]
+	segs := f.segs
+	for i := range segs {
+		s := &segs[i]
+		ex := px - s.ax
+		ey := py - s.ay
+		ddx, ddy := s.dx, s.dy
 
-		// Project query point onto segment to find closest point.
-		// dot = projection parameter (unnormalized), lenSq = segment length squared.
 		dot := ex*ddx + ey*ddy
 		lenSq := ddx*ddx + ddy*ddy
+		cross := ex*ddy - ey*ddx
 
 		var d2 float64
 		if dot <= 0 {
-			// Closest to start point (projection falls before segment).
 			d2 = ex*ex + ey*ey
 		} else if dot >= lenSq {
-			// Closest to end point (projection falls past segment).
-			fx := px - (f.ax[i] + ddx)
-			fy := py - (f.ay[i] + ddy)
+			fx := ex - ddx
+			fy := ey - ddy
 			d2 = fx*fx + fy*fy
 		} else {
-			// Closest to interior of segment: perpendicular distance.
-			// cross = signed_distance * segment_length, so we divide by
-			// length (via invLen) to get the actual distance.
-			cross := ex*ddy - ey*ddx
-			d2 = cross * cross * f.invLen[i] * f.invLen[i]
+			d2 = cross * cross * s.invLen * s.invLen
 		}
 		if d2 < minD2 {
 			minD2 = d2
 		}
 
 		// Winding number contribution (crossing number algorithm).
-		// Tests whether a rightward ray from the query point crosses
-		// this segment, and whether the crossing is upward (+1) or
-		// downward (-1). Uses the same ex/ey/ddx/ddy values computed
-		// above — this is why combining distance + winding is free.
-		ay := f.ay[i]
-		by := f.ay[i] + ddy
+		// Reuses `cross` computed above.
+		ay := s.ay
+		by := ay + ddy
 		if ay <= py {
-			if by > py {
-				// Upward crossing: point is left of edge → inside.
-				if ex*ddy-ey*ddx < 0 {
-					wn++
-				}
+			if by > py && cross < 0 {
+				wn++
 			}
-		} else if by <= py {
-			// Downward crossing: point is right of edge → inside.
-			if ex*ddy-ey*ddx > 0 {
-				wn--
-			}
+		} else if by <= py && cross > 0 {
+			wn--
 		}
 	}
 
