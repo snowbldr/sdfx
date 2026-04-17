@@ -383,13 +383,17 @@ func Polygon2D(vertex []v2.Vec) (SDF2, error) {
 const meshFlatThreshold = 64
 
 // flatSeg packs one polygon edge into a cache-friendly 40-byte record:
-// start point (ax, ay), direction vector (dx, dy), and 1/length.
+// start point (ax, ay), direction vector (dx, dy), and 1/length².
 // Storing segments as an array of structs (vs parallel slices) reduces
 // pointer chases from 5 per iteration to 1, which matters because
 // flatMeshSDF2.Evaluate is the bottom of very hot SDF3 stacks
 // (Extrude2D → Polygon2D → Evaluate; profiled at 13% flat CPU).
+//
+// invLen2 stores 1/length² (not 1/length) because Evaluate only uses
+// the squared form (d² = cross² / length²), saving a multiply per
+// interior-projection case in the hot loop.
 type flatSeg struct {
-	ax, ay, dx, dy, invLen float64
+	ax, ay, dx, dy, invLen2 float64
 }
 
 // flatMeshSDF2 scans all segments per Evaluate, so we keep them contiguous.
@@ -406,12 +410,12 @@ func newFlatMesh(lSet []*Line2, bb Box2) *flatMeshSDF2 {
 	for i, l := range lSet {
 		dx := l[1].X - l[0].X
 		dy := l[1].Y - l[0].Y
-		length := math.Sqrt(dx*dx + dy*dy)
-		var invLen float64
-		if length > 0 {
-			invLen = 1.0 / length
+		lenSq := dx*dx + dy*dy
+		var invLen2 float64
+		if lenSq > 0 {
+			invLen2 = 1.0 / lenSq
 		}
-		f.segs[i] = flatSeg{ax: l[0].X, ay: l[0].Y, dx: dx, dy: dy, invLen: invLen}
+		f.segs[i] = flatSeg{ax: l[0].X, ay: l[0].Y, dx: dx, dy: dy, invLen2: invLen2}
 	}
 	return f
 }
@@ -445,7 +449,7 @@ func (f *flatMeshSDF2) Evaluate(pt v2.Vec) float64 {
 			fy := ey - ddy
 			d2 = fx*fx + fy*fy
 		} else {
-			d2 = cross * cross * s.invLen * s.invLen
+			d2 = cross * cross * s.invLen2
 		}
 		if d2 < minD2 {
 			minD2 = d2
