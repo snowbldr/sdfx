@@ -627,21 +627,23 @@ func Union2D(sdf ...SDF2) SDF2 {
 
 // Evaluate returns the minimum distance to the SDF2 union.
 func (s *UnionSDF2) Evaluate(p v2.Vec) float64 {
-	d := s.sdf[0].Evaluate(p)
+	sdfs := s.sdf
+	d := sdfs[0].Evaluate(p)
 	if s.blended {
 		// Blended min: must evaluate all children (see UnionSDF3.Evaluate).
-		for i := 1; i < len(s.sdf); i++ {
-			d = s.min(d, s.sdf[i].Evaluate(p))
+		for i := 1; i < len(sdfs); i++ {
+			d = s.min(d, sdfs[i].Evaluate(p))
 		}
 		return d
 	}
 	// Hard min with bbox pruning — same logic as UnionSDF3.Evaluate.
+	boxes := s.boxes[:len(sdfs)] // tell the compiler boxes[i] is in-range
 	bound := d * d
-	for i := 1; i < len(s.sdf); i++ {
-		if s.boxes[i].MinDist2(p) > bound {
+	for i := 1; i < len(sdfs); i++ {
+		if boxes[i].MinDist2(p) > bound {
 			continue
 		}
-		if v := s.sdf[i].Evaluate(p); v < d {
+		if v := sdfs[i].Evaluate(p); v < d {
 			d = v
 			bound = d * d
 		}
