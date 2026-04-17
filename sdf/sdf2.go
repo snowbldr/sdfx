@@ -30,16 +30,19 @@ type SDF2 interface {
 // Basic SDF Functions
 
 func sdfBox2d(p, s v2.Vec) float64 {
-	p = p.Abs()
-	d := p.Sub(s)
-	k := s.Y - s.X
-	if d.X > 0 && d.Y > 0 {
-		return d.Length()
+	// Manually inlined Abs/Sub/Length to keep sdfBox2d under the inline
+	// budget — CylinderSDF3.Evaluate calls this on every SDF eval.
+	px := math.Abs(p.X)
+	py := math.Abs(p.Y)
+	dx := px - s.X
+	dy := py - s.Y
+	if dx > 0 && dy > 0 {
+		return math.Sqrt(dx*dx + dy*dy)
 	}
-	if p.Y-p.X > k {
-		return d.Y
+	if py-px > s.Y-s.X {
+		return dy
 	}
-	return d.X
+	return dx
 }
 
 //-----------------------------------------------------------------------------
