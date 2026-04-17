@@ -717,12 +717,14 @@ func (s *UnionSDF3) Evaluate(p v3.Vec) float64 {
 	// (SDF values are always >= distance to the bounding box for exterior
 	// points). The d*d comparison works for both positive d (outside all
 	// children so far) and negative d (inside a child), since d*d = |d|^2.
+	bound := d * d
 	for i := 1; i < len(s.sdf); i++ {
-		if s.boxes[i].MinDist2(p) > d*d {
+		if s.boxes[i].MinDist2(p) > bound {
 			continue
 		}
 		if v := s.sdf[i].Evaluate(p); v < d {
 			d = v
+			bound = d * d
 		}
 	}
 	return d
