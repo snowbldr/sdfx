@@ -117,6 +117,20 @@ func (a Box2) MinDist2(p v2.Vec) float64 {
 	return dx*dx + dy*dy
 }
 
+// MinDist2GT reports whether MinDist2(p) > bound. Short-circuits after the
+// first axis when its slab gap alone already exceeds bound — UnionSDF2 only
+// needs the boolean, so skipping the second slab on pruned children saves
+// work on the hot path.
+func (a Box2) MinDist2GT(p v2.Vec, bound float64) bool {
+	dx := max(a.Min.X-p.X, p.X-a.Max.X, 0)
+	d2 := dx * dx
+	if d2 > bound {
+		return true
+	}
+	dy := max(a.Min.Y-p.Y, p.Y-a.Max.Y, 0)
+	return d2+dy*dy > bound
+}
+
 //-----------------------------------------------------------------------------
 // Box Sub-Quadrants
 

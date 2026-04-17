@@ -643,7 +643,7 @@ func (s *UnionSDF2) Evaluate(p v2.Vec) float64 {
 	boxes := s.boxes[:len(sdfs)] // tell the compiler boxes[i] is in-range
 	bound := d * d
 	for i := 1; i < len(sdfs); i++ {
-		if boxes[i].MinDist2(p) > bound {
+		if boxes[i].MinDist2GT(p, bound) {
 			continue
 		}
 		if v := sdfs[i].Evaluate(p); v < d {
@@ -704,7 +704,7 @@ func (s *DifferenceSDF2) Evaluate(p v2.Vec) float64 {
 	if s.blended {
 		return s.max(d0, -s.s1.Evaluate(p))
 	}
-	if s.s1bb.MinDist2(p) > d0*d0 {
+	if s.s1bb.MinDist2GT(p, d0*d0) {
 		return d0
 	}
 	d1 := -s.s1.Evaluate(p)

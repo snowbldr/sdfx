@@ -176,6 +176,26 @@ func (a Box3) MinDist2(p v3.Vec) float64 {
 	return dx*dx + dy*dy + dz*dz
 }
 
+// MinDist2GT reports whether MinDist2(p) > bound. Short-circuits as soon as
+// any axis's contribution alone exceeds bound, skipping the remaining slab
+// computations on the common "bbox too far" path. UnionSDF3/DifferenceSDF3
+// only need the boolean, so direct MinDist2 compare wastes work when the
+// first axis already prunes.
+func (a Box3) MinDist2GT(p v3.Vec, bound float64) bool {
+	dx := max(a.Min.X-p.X, p.X-a.Max.X, 0)
+	d2 := dx * dx
+	if d2 > bound {
+		return true
+	}
+	dy := max(a.Min.Y-p.Y, p.Y-a.Max.Y, 0)
+	d2 += dy * dy
+	if d2 > bound {
+		return true
+	}
+	dz := max(a.Min.Z-p.Z, p.Z-a.Max.Z, 0)
+	return d2+dz*dz > bound
+}
+
 //-----------------------------------------------------------------------------
 // Minimum/Maximum distances from a point to a box
 

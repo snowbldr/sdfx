@@ -749,7 +749,7 @@ func (s *UnionSDF3) Evaluate(p v3.Vec) float64 {
 	boxes := s.boxes[:len(sdfs)] // tell the compiler boxes[i] is in-range
 	bound := d * d
 	for i := 1; i < len(sdfs); i++ {
-		if boxes[i].MinDist2(p) > bound {
+		if boxes[i].MinDist2GT(p, bound) {
 			continue
 		}
 		if v := sdfs[i].Evaluate(p); v < d {
@@ -818,7 +818,7 @@ func (s *DifferenceSDF3) Evaluate(p v3.Vec) float64 {
 	// We know d1 >= sqrt(MinDist2(s1.bb, p)) for p outside s1's bbox, so
 	// -d1 <= -sqrt(MinDist2). If MinDist2 > d0*d0, then d1 > |d0|, so
 	// -d1 < d0 whether d0 is positive or negative — result = d0.
-	if s.s1bb.MinDist2(p) > d0*d0 {
+	if s.s1bb.MinDist2GT(p, d0*d0) {
 		return d0
 	}
 	d1 := -s.s1.Evaluate(p)
