@@ -169,13 +169,28 @@ func (w *mcWorker) evaluate(vi v3i.Vec) (v3.Vec, float64) {
 	return v, d
 }
 
+// evaluateD is evaluate without the v3.Vec position. isEmpty discards the
+// position on every call — skipping it saves the 3-float world-space
+// computation per octree-cell prune test, which happens many times more
+// often than leaf-corner evaluations.
+func (w *mcWorker) evaluateD(vi v3i.Vec) float64 {
+	packed := packVec(vi)
+	if d, ok := w.cache.get(packed); ok {
+		return d
+	}
+	v := w.origin.Add(conv.V3iToV3(vi).MulScalar(w.resolution))
+	d := w.s.Evaluate(v)
+	w.cache.set(packed, d)
+	return d
+}
+
 // isEmpty tests whether a cube can possibly contain any part of the surface.
 // It evaluates the SDF at the cube center: if the absolute distance exceeds
 // the half-diagonal (the farthest any corner can be from the center), the
 // surface cannot intersect this cube and we can skip it entirely.
 func (w *mcWorker) isEmpty(c cube) bool {
 	s := 1 << (c.n - 1)
-	_, d := w.evaluate(c.v.AddScalar(s))
+	d := w.evaluateD(c.v.AddScalar(s))
 	if d < 0 {
 		d = -d
 	}
