@@ -149,6 +149,7 @@ type ExtrudeSDF3 struct {
 	height  float64
 	extrude ExtrudeFunc
 	bb      Box3
+	isNormal bool // default NormalExtrude — skip function-pointer call in Evaluate
 }
 
 // Extrude3D does a linear extrude on an SDF3.
@@ -157,6 +158,7 @@ func Extrude3D(sdf SDF2, height float64) SDF3 {
 	s.sdf = sdf
 	s.height = height / 2
 	s.extrude = NormalExtrude
+	s.isNormal = true
 	// work out the bounding box
 	bb := sdf.BoundingBox()
 	s.bb = Box3{v3.Vec{bb.Min.X, bb.Min.Y, -s.height}, v3.Vec{bb.Max.X, bb.Max.Y, s.height}}
@@ -205,7 +207,13 @@ func ScaleTwistExtrude3D(sdf SDF2, height, twist float64, scale v2.Vec) SDF3 {
 
 // Evaluate returns the minimum distance to an extrusion.
 func (s *ExtrudeSDF3) Evaluate(p v3.Vec) float64 {
-	a := s.sdf.Evaluate(s.extrude(p))
+	var q v2.Vec
+	if s.isNormal {
+		q = v2.Vec{X: p.X, Y: p.Y}
+	} else {
+		q = s.extrude(p)
+	}
+	a := s.sdf.Evaluate(q)
 	z := p.Z
 	if z < 0 {
 		z = -z
@@ -220,6 +228,7 @@ func (s *ExtrudeSDF3) Evaluate(p v3.Vec) float64 {
 // SetExtrude sets the extrusion control function.
 func (s *ExtrudeSDF3) SetExtrude(extrude ExtrudeFunc) {
 	s.extrude = extrude
+	s.isNormal = false
 }
 
 // BoundingBox returns the bounding box for an extrusion.
