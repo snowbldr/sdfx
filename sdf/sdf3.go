@@ -587,10 +587,16 @@ func (s *ConeSDF3) BoundingBox() Box3 {
 
 // TransformSDF3 is an SDF3 transformed with a 4x4 transformation matrix.
 type TransformSDF3 struct {
-	sdf     SDF3
-	matrix  M44
-	inverse M44
-	bb      Box3
+	sdf       SDF3
+	matrix    M44
+	inverse   M44
+	translate v3.Vec // inverse translation when isTranslate (-v for Translate3d(v))
+	bb        Box3
+	// isTranslate marks transforms that are pure translations so Evaluate
+	// can skip the 12-multiply matrix-vector product and just add translate.
+	// Translate3d is by far the most common Transform3D usage (243 call
+	// sites across the repo as of this change), so specializing it wins.
+	isTranslate bool
 }
 
 // Transform3D applies a transformation matrix to an SDF3.
@@ -600,12 +606,25 @@ func Transform3D(sdf SDF3, matrix M44) SDF3 {
 	s.matrix = matrix
 	s.inverse = matrix.Inverse()
 	s.bb = matrix.MulBox(sdf.BoundingBox())
+	// Detect translation-only inverse. MulPosition on such a matrix
+	// reduces to p + (tx,ty,tz), which is what isTranslate fast-paths.
+	inv := &s.inverse
+	if inv[0] == 1 && inv[1] == 0 && inv[2] == 0 &&
+		inv[4] == 0 && inv[5] == 1 && inv[6] == 0 &&
+		inv[8] == 0 && inv[9] == 0 && inv[10] == 1 &&
+		inv[12] == 0 && inv[13] == 0 && inv[14] == 0 && inv[15] == 1 {
+		s.isTranslate = true
+		s.translate = v3.Vec{X: inv[3], Y: inv[7], Z: inv[11]}
+	}
 	return &s
 }
 
 // Evaluate returns the minimum distance to a transformed SDF3.
 // Distance is *not* preserved with scaling.
 func (s *TransformSDF3) Evaluate(p v3.Vec) float64 {
+	if s.isTranslate {
+		return s.sdf.Evaluate(v3.Vec{X: p.X + s.translate.X, Y: p.Y + s.translate.Y, Z: p.Z + s.translate.Z})
+	}
 	return s.sdf.Evaluate(s.inverse.MulPosition(p))
 }
 
