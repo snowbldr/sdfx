@@ -1038,6 +1038,7 @@ type RotateUnionSDF3 struct {
 	sdf     SDF3
 	num     int
 	mats    []M44 // mats[i] = step^i (inverse), precomputed
+	childBB Box3  // sdf.BoundingBox(); tested per copy in local space
 	min     MinFunc
 	blended bool
 	bb      Box3
@@ -1053,6 +1054,7 @@ func RotateUnion3D(sdf SDF3, num int, step M44) SDF3 {
 	s.sdf = sdf
 	s.num = num
 	s.min = math.Min
+	s.childBB = sdf.BoundingBox()
 	// precompute inverse rotation powers so Evaluate skips per-call Mul
 	invStep := step.Inverse()
 	s.mats = make([]M44, num)
@@ -1061,7 +1063,7 @@ func RotateUnion3D(sdf SDF3, num int, step M44) SDF3 {
 		s.mats[i] = s.mats[i-1].Mul(invStep)
 	}
 	// work out the bounding box
-	v := sdf.BoundingBox().Vertices()
+	v := s.childBB.Vertices()
 	bbMin := v[0]
 	bbMax := v[0]
 	for i := 0; i < s.num; i++ {
@@ -1084,10 +1086,19 @@ func (s *RotateUnionSDF3) Evaluate(p v3.Vec) float64 {
 		}
 		return d
 	}
+	// Hard-min pruning: x sits in the child's LOCAL frame (mats[i] is the
+	// inverse of step^i), so every copy shares the same childBB. Skip a copy
+	// when x is too far from childBB for its SDF value to improve d.
+	bound := d * d
+	bb := s.childBB
 	for i := range mats {
 		x := mats[i].MulPosition(p)
+		if bb.MinDist2GT(x, bound) {
+			continue
+		}
 		if v := s.sdf.Evaluate(x); v < d {
 			d = v
+			bound = d * d
 		}
 	}
 	return d
