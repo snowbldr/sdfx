@@ -57,6 +57,16 @@ func main() {
 }
 ```
 
+## Dev loop: `stldev`
+
+For an iterative dev loop, pair sdfx with [`stldev`](https://github.com/snowbldr/stldev) — a small CLI that watches your Go source, re-runs your build command, and previews the generated STLs in [f3d](https://f3d.app) with auto-reload and tiled windows.
+
+```bash
+go install github.com/snowbldr/stldev@latest
+
+stldev -cmd "go run ." out.stl
+```
+
 ## Framework Reference
 
 All APIs live in `github.com/snowbldr/sdfx/sdf` (geometry and operators) and `github.com/snowbldr/sdfx/render` (rendering and file I/O). Constructors that can fail return `(SDFn, error)`; pure algebraic operators return the SDF directly.
