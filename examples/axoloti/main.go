@@ -236,19 +236,19 @@ func main() {
 		log.Fatalf("error: %s", err)
 	}
 	sx := sdf.Transform3D(s0, sdf.RotateY(sdf.DtoR(180.0)))
-	render.ToSTL(sdf.ScaleUniform3D(sx, shrink), "panel.stl", render.NewMarchingCubesOctree(400))
+	render.ToSTL(sdf.ScaleUniform3D(sx, shrink), "panel.stl", render.NewMarchingCubesOctreeParallel(400))
 
 	// base
 	s1, err := base()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(s1, shrink), "base.stl", render.NewMarchingCubesOctree(400))
+	render.ToSTL(sdf.ScaleUniform3D(s1, shrink), "base.stl", render.NewMarchingCubesOctreeParallel(400))
 
 	// both together
 	s0 = sdf.Transform3D(s0, sdf.Translate3d(v3.Vec{0, 80, 0}))
 	s3 := sdf.Union3D(s0, s1)
-	render.ToSTL(sdf.ScaleUniform3D(s3, shrink), "panel_and_base.stl", render.NewMarchingCubesOctree(400))
+	render.ToSTL(sdf.ScaleUniform3D(s3, shrink), "panel_and_base.stl", render.NewMarchingCubesOctreeParallel(400))
 }
 
 //-----------------------------------------------------------------------------

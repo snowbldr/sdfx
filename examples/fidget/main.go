@@ -265,37 +265,37 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(body1, "body1.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(body1, "body1.stl", render.NewMarchingCubesOctreeParallel(300))
 
 	body2, err := body2()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(body2, "body2.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(body2, "body2.stl", render.NewMarchingCubesOctreeParallel(300))
 
 	scs, err := spincapSingle()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(scs, "cap_single.stl", render.NewMarchingCubesOctree(150))
+	render.ToSTL(scs, "cap_single.stl", render.NewMarchingCubesOctreeParallel(150))
 
 	scdm, err := spincapDouble(true)
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(scdm, "cap_double_male.stl", render.NewMarchingCubesOctree(150))
+	render.ToSTL(scdm, "cap_double_male.stl", render.NewMarchingCubesOctreeParallel(150))
 
 	scdf, err := spincapDouble(false)
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(scdf, "cap_double_female.stl", render.NewMarchingCubesOctree(150))
+	render.ToSTL(scdf, "cap_double_female.stl", render.NewMarchingCubesOctreeParallel(150))
 
 	scw, err := spincapWasher()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(scw, "washer.stl", render.NewMarchingCubesOctree(150))
+	render.ToSTL(scw, "washer.stl", render.NewMarchingCubesOctreeParallel(150))
 }
 
 //-----------------------------------------------------------------------------

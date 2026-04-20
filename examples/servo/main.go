@@ -59,7 +59,7 @@ func servos() error {
 		yOfs += 0.5 * k.Body.Y
 	}
 
-	render.ToSTL(s, "servos.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(s, "servos.stl", render.NewMarchingCubesOctreeParallel(300))
 	return nil
 }
 

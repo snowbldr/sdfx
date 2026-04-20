@@ -30,16 +30,19 @@ type SDF2 interface {
 // Basic SDF Functions
 
 func sdfBox2d(p, s v2.Vec) float64 {
-	p = p.Abs()
-	d := p.Sub(s)
-	k := s.Y - s.X
-	if d.X > 0 && d.Y > 0 {
-		return d.Length()
+	// Manually inlined Abs/Sub/Length to keep sdfBox2d under the inline
+	// budget — CylinderSDF3.Evaluate calls this on every SDF eval.
+	px := math.Abs(p.X)
+	py := math.Abs(p.Y)
+	dx := px - s.X
+	dy := py - s.Y
+	if dx > 0 && dy > 0 {
+		return math.Sqrt(dx*dx + dy*dy)
 	}
-	if p.Y-p.X > k {
-		return d.Y
+	if py-px > s.Y-s.X {
+		return dy
 	}
-	return d.X
+	return dx
 }
 
 //-----------------------------------------------------------------------------
@@ -170,10 +173,11 @@ func (s *OffsetSDF2) BoundingBox() Box2 {
 
 // IntersectionSDF2 is the intersection of two SDF2s.
 type IntersectionSDF2 struct {
-	s0  SDF2
-	s1  SDF2
-	max MaxFunc
-	bb  Box2
+	s0      SDF2
+	s1      SDF2
+	max     MaxFunc
+	blended bool
+	bb      Box2
 }
 
 // Intersect2D returns the intersection of two SDF2s.
@@ -192,12 +196,21 @@ func Intersect2D(s0, s1 SDF2) SDF2 {
 
 // Evaluate returns the minimum distance to the SDF2 intersection.
 func (s *IntersectionSDF2) Evaluate(p v2.Vec) float64 {
-	return s.max(s.s0.Evaluate(p), s.s1.Evaluate(p))
+	a := s.s0.Evaluate(p)
+	b := s.s1.Evaluate(p)
+	if s.blended {
+		return s.max(a, b)
+	}
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // SetMax sets the maximum function to control blending.
 func (s *IntersectionSDF2) SetMax(max MaxFunc) {
 	s.max = max
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of an SDF2 intersection.
@@ -231,7 +244,12 @@ func Cut2D(sdf SDF2, a, v v2.Vec) SDF2 {
 
 // Evaluate returns the minimum distance to cut SDF2.
 func (s *CutSDF2) Evaluate(p v2.Vec) float64 {
-	return math.Max(p.Sub(s.a).Dot(s.n), s.sdf.Evaluate(p))
+	a := p.Sub(s.a).Dot(s.n)
+	b := s.sdf.Evaluate(p)
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // BoundingBox returns the bounding box for the cut SDF2.
@@ -325,11 +343,12 @@ func CenterAndScale2D(s SDF2, k float64) SDF2 {
 
 // ArraySDF2 defines an XY grid array of an existing SDF2.
 type ArraySDF2 struct {
-	sdf  SDF2
-	num  v2i.Vec // grid size
-	step v2.Vec  // grid step size
-	min  MinFunc
-	bb   Box2
+	sdf     SDF2
+	num     v2i.Vec // grid size
+	step    v2.Vec  // grid step size
+	min     MinFunc
+	blended bool
+	bb      Box2
 }
 
 // Array2D returns an XY grid array of an existing SDF2.
@@ -353,15 +372,27 @@ func Array2D(sdf SDF2, num v2i.Vec, step v2.Vec) SDF2 {
 // SetMin sets the minimum function to control blending.
 func (s *ArraySDF2) SetMin(min MinFunc) {
 	s.min = min
+	s.blended = true
 }
 
 // Evaluate returns the minimum distance to a grid array of SDF2s.
 func (s *ArraySDF2) Evaluate(p v2.Vec) float64 {
 	d := math.MaxFloat64
+	if s.blended {
+		for j := 0; j < s.num.X; j++ {
+			for k := 0; k < s.num.Y; k++ {
+				x := p.Sub(v2.Vec{float64(j) * s.step.X, float64(k) * s.step.Y})
+				d = s.min(d, s.sdf.Evaluate(x))
+			}
+		}
+		return d
+	}
 	for j := 0; j < s.num.X; j++ {
 		for k := 0; k < s.num.Y; k++ {
 			x := p.Sub(v2.Vec{float64(j) * s.step.X, float64(k) * s.step.Y})
-			d = s.min(d, s.sdf.Evaluate(x))
+			if v := s.sdf.Evaluate(x); v < d {
+				d = v
+			}
 		}
 	}
 	return d
@@ -376,11 +407,12 @@ func (s *ArraySDF2) BoundingBox() Box2 {
 
 // RotateUnionSDF2 defines a union of rotated SDF2s.
 type RotateUnionSDF2 struct {
-	sdf  SDF2
-	num  int
-	step M33
-	min  MinFunc
-	bb   Box2
+	sdf     SDF2
+	num     int
+	step    M33
+	min     MinFunc
+	blended bool
+	bb      Box2
 }
 
 // RotateUnion2D returns a union of rotated SDF2s.
@@ -411,9 +443,19 @@ func RotateUnion2D(sdf SDF2, num int, step M33) SDF2 {
 func (s *RotateUnionSDF2) Evaluate(p v2.Vec) float64 {
 	d := math.MaxFloat64
 	rot := Identity2d()
+	if s.blended {
+		for i := 0; i < s.num; i++ {
+			x := rot.MulPosition(p)
+			d = s.min(d, s.sdf.Evaluate(x))
+			rot = rot.Mul(s.step)
+		}
+		return d
+	}
 	for i := 0; i < s.num; i++ {
 		x := rot.MulPosition(p)
-		d = s.min(d, s.sdf.Evaluate(x))
+		if v := s.sdf.Evaluate(x); v < d {
+			d = v
+		}
 		rot = rot.Mul(s.step)
 	}
 	return d
@@ -422,6 +464,7 @@ func (s *RotateUnionSDF2) Evaluate(p v2.Vec) float64 {
 // SetMin sets the minimum function to control blending.
 func (s *RotateUnionSDF2) SetMin(min MinFunc) {
 	s.min = min
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of a union of rotated SDF2s.
@@ -587,20 +630,26 @@ func Union2D(sdf ...SDF2) SDF2 {
 
 // Evaluate returns the minimum distance to the SDF2 union.
 func (s *UnionSDF2) Evaluate(p v2.Vec) float64 {
-	d := s.sdf[0].Evaluate(p)
+	sdfs := s.sdf
+	d := sdfs[0].Evaluate(p)
 	if s.blended {
 		// Blended min: must evaluate all children (see UnionSDF3.Evaluate).
-		for i := 1; i < len(s.sdf); i++ {
-			d = s.min(d, s.sdf[i].Evaluate(p))
+		for i := 1; i < len(sdfs); i++ {
+			d = s.min(d, sdfs[i].Evaluate(p))
 		}
 		return d
 	}
 	// Hard min with bbox pruning — same logic as UnionSDF3.Evaluate.
-	for i := 1; i < len(s.sdf); i++ {
-		if s.boxes[i].MinDist2(p) > d*d {
+	boxes := s.boxes[:len(sdfs)] // tell the compiler boxes[i] is in-range
+	bound := d * d
+	for i := 1; i < len(sdfs); i++ {
+		if boxes[i].MinDist2GT(p, bound) {
 			continue
 		}
-		d = math.Min(d, s.sdf[i].Evaluate(p))
+		if v := sdfs[i].Evaluate(p); v < d {
+			d = v
+			bound = d * d
+		}
 	}
 	return d
 }
@@ -620,12 +669,16 @@ func (s *UnionSDF2) BoundingBox() Box2 {
 
 //-----------------------------------------------------------------------------
 
-// DifferenceSDF2 is the difference of two SDF2s.
+// DifferenceSDF2 is the difference of two SDF2s, s0 - s1.
+// With the default hard max, the s1 evaluation is skipped when p is
+// far enough from s1's bbox — same pruning rule as DifferenceSDF3.
 type DifferenceSDF2 struct {
-	s0  SDF2
-	s1  SDF2
-	max MaxFunc
-	bb  Box2
+	s0      SDF2
+	s1      SDF2
+	max     MaxFunc
+	bb      Box2
+	s1bb    Box2
+	blended bool
 }
 
 // Difference2D returns the difference of two SDF2 objects, s0 - s1.
@@ -641,17 +694,31 @@ func Difference2D(s0, s1 SDF2) SDF2 {
 	s.s1 = s1
 	s.max = math.Max
 	s.bb = s0.BoundingBox()
+	s.s1bb = s1.BoundingBox()
 	return &s
 }
 
 // Evaluate returns the minimum distance to the difference of two SDF2s.
 func (s *DifferenceSDF2) Evaluate(p v2.Vec) float64 {
-	return s.max(s.s0.Evaluate(p), -s.s1.Evaluate(p))
+	d0 := s.s0.Evaluate(p)
+	if s.blended {
+		return s.max(d0, -s.s1.Evaluate(p))
+	}
+	if s.s1bb.MinDist2GT(p, d0*d0) {
+		return d0
+	}
+	d1 := -s.s1.Evaluate(p)
+	if d1 > d0 {
+		return d1
+	}
+	return d0
 }
 
 // SetMax sets the maximum function to control blending.
+// Disables bbox pruning — see DifferenceSDF3.SetMax.
 func (s *DifferenceSDF2) SetMax(max MaxFunc) {
 	s.max = max
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of the difference of two SDF2s.

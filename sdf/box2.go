@@ -107,12 +107,28 @@ func (a Box2) Equals(b Box2, delta float64) bool {
 // MinDist2 returns the squared minimum distance from a point to the box.
 // Returns 0 if the point is inside the box.
 //
-// Same approach as Box3.MinDist2 but for 2D. Used by UnionSDF2 to skip
-// children whose bounding box cannot produce a closer distance.
+// Used by UnionSDF2 to skip children whose bounding box cannot produce
+// a closer distance — called once per child per evaluation, so this is
+// a very hot path. Using the built-in max avoids math.Max's archMax /
+// NaN handling (which profiled at ~32% of total CPU on complex models).
 func (a Box2) MinDist2(p v2.Vec) float64 {
-	dx := math.Max(a.Min.X-p.X, math.Max(0, p.X-a.Max.X))
-	dy := math.Max(a.Min.Y-p.Y, math.Max(0, p.Y-a.Max.Y))
+	dx := max(a.Min.X-p.X, p.X-a.Max.X, 0)
+	dy := max(a.Min.Y-p.Y, p.Y-a.Max.Y, 0)
 	return dx*dx + dy*dy
+}
+
+// MinDist2GT reports whether MinDist2(p) > bound. Short-circuits after the
+// first axis when its slab gap alone already exceeds bound — UnionSDF2 only
+// needs the boolean, so skipping the second slab on pruned children saves
+// work on the hot path.
+func (a Box2) MinDist2GT(p v2.Vec, bound float64) bool {
+	dx := max(a.Min.X-p.X, p.X-a.Max.X, 0)
+	d2 := dx * dx
+	if d2 > bound {
+		return true
+	}
+	dy := max(a.Min.Y-p.Y, p.Y-a.Max.Y, 0)
+	return d2+dy*dy > bound
 }
 
 //-----------------------------------------------------------------------------

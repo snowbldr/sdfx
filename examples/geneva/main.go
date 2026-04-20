@@ -73,12 +73,12 @@ func main() {
 	driven3d = sdf.Difference3D(driven3d, hole3d)
 
 	const meshCells = 300
-	render.ToSTL(driver3d, "driver.stl", render.NewMarchingCubesOctree(meshCells))
-	render.ToSTL(driven3d, "driven.stl", render.NewMarchingCubesOctree(meshCells))
+	render.ToSTL(driver3d, "driver.stl", render.NewMarchingCubesOctreeParallel(meshCells))
+	render.ToSTL(driven3d, "driven.stl", render.NewMarchingCubesOctreeParallel(meshCells))
 
 	driver3d = sdf.Transform3D(driver3d, sdf.Translate3d(v3.Vec{-0.8 * k.DrivenRadius, 0, 0}))
 	driven3d = sdf.Transform3D(driven3d, sdf.Translate3d(v3.Vec{k.DrivenRadius, 0, 0}))
-	render.ToSTL(sdf.Union3D(driver3d, driven3d), "geneva.stl", render.NewMarchingCubesOctree(meshCells))
+	render.ToSTL(sdf.Union3D(driver3d, driven3d), "geneva.stl", render.NewMarchingCubesOctreeParallel(meshCells))
 }
 
 //-----------------------------------------------------------------------------

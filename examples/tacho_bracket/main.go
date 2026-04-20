@@ -85,7 +85,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(s, "tacho.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(s, "tacho.stl", render.NewMarchingCubesOctreeParallel(300))
 
 }
 

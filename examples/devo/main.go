@@ -116,7 +116,7 @@ func main() {
 	}
 
 	//s = sdf.Cut3D(s, V3{0, 0, 0}, v3.Vec{0, 1, 0})
-	render.ToSTL(s, "energy_dome.stl", render.NewMarchingCubesOctree(150))
+	render.ToSTL(s, "energy_dome.stl", render.NewMarchingCubesOctreeParallel(150))
 }
 
 //-----------------------------------------------------------------------------

@@ -50,25 +50,25 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(arrow1, "arrow1.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(arrow1, "arrow1.stl", render.NewMarchingCubesOctreeParallel(300))
 
 	axes1, err := axes1()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(axes1, "axes1.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(axes1, "axes1.stl", render.NewMarchingCubesOctreeParallel(300))
 
 	axes2, err := axes2()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(axes2, "axes2.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(axes2, "axes2.stl", render.NewMarchingCubesOctreeParallel(300))
 
 	axes3, err := axes3()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(axes3, "axes3.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(axes3, "axes3.stl", render.NewMarchingCubesOctreeParallel(300))
 
 }
 

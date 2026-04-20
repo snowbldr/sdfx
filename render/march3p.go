@@ -29,6 +29,7 @@ import (
 	"math"
 	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"github.com/deadsy/sdfx/sdf"
 	"github.com/deadsy/sdfx/vec/conv"
@@ -59,12 +60,37 @@ type directCache struct {
 	mask    int // size - 1, for fast modulo via bitwise AND
 }
 
-func newDirectCache(bits uint) *directCache {
-	size := 1 << bits
-	return &directCache{
-		entries: make([]cacheEntry, size),
-		mask:    size - 1,
-	}
+// directCacheBits controls the cache size: 1<<bits entries (16 bytes each).
+// 18 → 256K entries, 4MB per worker. Large enough for good hit rates on
+// complex models, small enough to stay in L3 cache per core.
+const directCacheBits = 18
+
+// directCachePool recycles directCache backing arrays across renders and
+// workers. Each render allocates one cache per CPU (~4MB each); without
+// pooling a multi-render pipeline like examples/picorx churns ~200MB of
+// transient allocations that show up as runtime.madvise in pprof.
+var directCachePool = sync.Pool{
+	New: func() any {
+		size := 1 << directCacheBits
+		return &directCache{
+			entries: make([]cacheEntry, size),
+			mask:    size - 1,
+		}
+	},
+}
+
+// acquireDirectCache returns a zeroed directCache from the pool. Zeroing
+// is required for correctness: if a stale entry's packed key happens to
+// match a new lookup, get() would return a wrong distance. 4MB memclr is
+// ~0.13ms per worker and is paid once per render.
+func acquireDirectCache() *directCache {
+	c := directCachePool.Get().(*directCache)
+	clear(c.entries)
+	return c
+}
+
+func releaseDirectCache(c *directCache) {
+	directCachePool.Put(c)
 }
 
 // packVec packs 3 grid coordinates into a single uint64 key.
@@ -119,9 +145,7 @@ func newMCWorker(s sdf.SDF3, origin v3.Vec, resolution float64, levels uint) *mc
 		resolution: resolution,
 		hdiag:      make([]float64, levels),
 		s:          s,
-		// 18 bits = 256K entries = ~4MB. Large enough for good hit rates on
-		// typical models, small enough to stay in L3 cache per core.
-		cache: newDirectCache(18),
+		cache:      acquireDirectCache(),
 	}
 	// Precompute the half-diagonal distance for cubes at each octree level.
 	// Used by isEmpty to determine if a cube can possibly contain the surface.
@@ -146,14 +170,32 @@ func (w *mcWorker) evaluate(vi v3i.Vec) (v3.Vec, float64) {
 	return v, d
 }
 
+// evaluateD is evaluate without the v3.Vec position. isEmpty discards the
+// position on every call — skipping it saves the 3-float world-space
+// computation per octree-cell prune test, which happens many times more
+// often than leaf-corner evaluations.
+func (w *mcWorker) evaluateD(vi v3i.Vec) float64 {
+	packed := packVec(vi)
+	if d, ok := w.cache.get(packed); ok {
+		return d
+	}
+	v := w.origin.Add(conv.V3iToV3(vi).MulScalar(w.resolution))
+	d := w.s.Evaluate(v)
+	w.cache.set(packed, d)
+	return d
+}
+
 // isEmpty tests whether a cube can possibly contain any part of the surface.
 // It evaluates the SDF at the cube center: if the absolute distance exceeds
 // the half-diagonal (the farthest any corner can be from the center), the
 // surface cannot intersect this cube and we can skip it entirely.
-func (w *mcWorker) isEmpty(c *cube) bool {
+func (w *mcWorker) isEmpty(c cube) bool {
 	s := 1 << (c.n - 1)
-	_, d := w.evaluate(c.v.AddScalar(s))
-	return math.Abs(d) >= w.hdiag[c.n]
+	d := w.evaluateD(c.v.AddScalar(s))
+	if d < 0 {
+		d = -d
+	}
+	return d >= w.hdiag[c.n]
 }
 
 // processCube recursively subdivides the octree. At the leaf level (n==1),
@@ -161,7 +203,12 @@ func (w *mcWorker) isEmpty(c *cube) bool {
 // Triangles are appended to a flat slice (value types, not pointers) to
 // avoid per-triangle heap allocation — the pointer slice required by
 // Triangle3Writer is created once when writing results.
-func (w *mcWorker) processCube(c *cube, tris []sdf.Triangle3) []sdf.Triangle3 {
+//
+// Cube is passed by value (32 bytes). Passing a *cube to the recursive
+// call caused &cube{...} literals to escape to the heap, costing ~12% CPU
+// in runtime.newobject/mallocgc (pprof picorx rhs). Value recursion keeps
+// everything on the stack.
+func (w *mcWorker) processCube(c cube, tris []sdf.Triangle3) []sdf.Triangle3 {
 	if w.isEmpty(c) {
 		return tris
 	}
@@ -185,7 +232,7 @@ func (w *mcWorker) processCube(c *cube, tris []sdf.Triangle3) []sdf.Triangle3 {
 	n := c.n - 1
 	s := 1 << n
 	for _, off := range mcOctreeOffsets(s) {
-		tris = w.processCube(&cube{c.v.Add(off), n}, tris)
+		tris = w.processCube(cube{c.v.Add(off), n}, tris)
 	}
 	return tris
 }
@@ -212,29 +259,51 @@ func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float6
 		}
 	}
 	// No edges crossed — cube is entirely inside or outside the surface.
-	if mcEdgeTable[index] == 0 {
+	edges := mcEdgeTable[index]
+	if edges == 0 {
 		return tris
 	}
 	// Interpolate surface crossing points along each active edge.
 	var points [12]v3.Vec
 	for i := 0; i < 12; i++ {
-		if mcEdgeTable[index]&(1<<uint(i)) != 0 {
+		if edges&(1<<uint(i)) != 0 {
 			a := mcPairTable[i][0]
 			b := mcPairTable[i][1]
 			points[i] = mcInterpolate(p[a], p[b], v[a], v[b], x)
 		}
 	}
 	// Emit triangles from the lookup table.
+	//
+	// Triangle3 is 72 bytes, so an append of a zero value costs one 72-byte
+	// zero-copy even when capacity is already present (profiled at 26% CPU
+	// on picorx rhs). Extending len without the zero copy requires bypassing
+	// append: if cap allows, we reslice and write fields directly; only the
+	// grow path still uses append. With a pre-sized worker buffer the grow
+	// path is hit on the order of 1-3 times per render.
 	table := mcTriangleTable[index]
 	count := len(table) / 3
 	for i := 0; i < count; i++ {
-		t := sdf.Triangle3{}
-		t[2] = points[table[i*3+0]]
-		t[1] = points[table[i*3+1]]
-		t[0] = points[table[i*3+2]]
-		if !t.Degenerate(0) {
-			tris = append(tris, t)
+		// Check degeneracy before writing. Triangle3.Degenerate(0) compares
+		// vertices via math.Abs(x-y) <= 0, which reduces to x == y for normal
+		// floats. Direct struct equality skips the 6 math.Abs calls per
+		// triangle and, on degenerate cases, avoids three 24-byte vertex
+		// writes followed by a truncate.
+		p0 := points[table[i*3+0]]
+		p1 := points[table[i*3+1]]
+		p2 := points[table[i*3+2]]
+		if p0 == p1 || p1 == p2 || p2 == p0 {
+			continue
 		}
+		n := len(tris)
+		if n < cap(tris) {
+			tris = tris[:n+1]
+		} else {
+			tris = append(tris, sdf.Triangle3{})
+		}
+		dst := &tris[n]
+		dst[2] = p0
+		dst[1] = p1
+		dst[0] = p2
 	}
 	return tris
 }
@@ -246,18 +315,18 @@ func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float6
 // parallel processing. The scout worker's cache warms up during this
 // traversal, but we don't share it with the parallel workers (each gets
 // its own cache to avoid lock contention).
-func collectSubcubes(w *mcWorker, c *cube, targetLevel uint) []cube {
+func collectSubcubes(w *mcWorker, c cube, targetLevel uint) []cube {
 	if w.isEmpty(c) {
 		return nil
 	}
 	if c.n <= targetLevel || c.n == 1 {
-		return []cube{*c}
+		return []cube{c}
 	}
 	n := c.n - 1
 	s := 1 << n
 	var cubes []cube
 	for _, off := range mcOctreeOffsets(s) {
-		cubes = append(cubes, collectSubcubes(w, &cube{c.v.Add(off), n}, targetLevel)...)
+		cubes = append(cubes, collectSubcubes(w, cube{c.v.Add(off), n}, targetLevel)...)
 	}
 	return cubes
 }
@@ -302,49 +371,89 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 		}
 	}
 
-	subcubes := collectSubcubes(scout, &topCube, fanoutLevel)
+	subcubes := collectSubcubes(scout, topCube, fanoutLevel)
+	releaseDirectCache(scout.cache)
 
 	// Phase 2: distribute subcubes across goroutines. Each goroutine gets
 	// its own worker (and therefore its own cache) — no shared mutable state.
-	// Results are stored in a pre-allocated slice indexed by subcube order,
-	// so output ordering is deterministic regardless of processing order.
-	type result struct {
-		tris []sdf.Triangle3
+	//
+	// Each worker appends into one ever-growing buffer across all its subcubes
+	// instead of starting from nil per subcube. A nil-per-subcube approach
+	// runs the slice through ~14 doubling growths each (picorx rhs has ~19k
+	// triangles per subcube), which profiled at 11% CPU in memmove+memclr
+	// from growslice. Sharing the buffer lets allocation amortize across the
+	// worker's entire workload, leaving at most one realloc per worker.
+	// A (workerID, start, end) triplet per subcube preserves subcube-order
+	// output, so STLs stay deterministic.
+	type span struct {
+		worker, start, end int
 	}
-	results := make([]result, len(subcubes))
+	spans := make([]span, len(subcubes))
+	workerBufs := make([][]sdf.Triangle3, nCPU)
 
 	var wg sync.WaitGroup
-	work := make(chan int, len(subcubes))
 
+	// Work dispatch via shared atomic counter: each worker fetch-adds to
+	// claim the next subcube index. Avoids channel mutex/sudog overhead that
+	// profiled at ~5% of render wall time for the panel benchmark at 400
+	// mesh cells. The loop terminates when the counter passes len(subcubes).
+	var nextIdx atomic.Int64
+	nSubcubes := int64(len(subcubes))
+
+	// Pre-size each worker's triangle buffer. Starting from nil incurs
+	// ~7 growslice doublings per worker at picorx rhs scale (150k tris /
+	// worker), each doing memclr + memmove on an ever-larger backing
+	// array. 16k is large enough for most small subcubes and small enough
+	// that idle workers don't waste significant memory.
+	const initialTriCap = 16384
 	for i := 0; i < nCPU; i++ {
 		wg.Add(1)
-		go func() {
+		go func(wid int) {
 			defer wg.Done()
 			w := newMCWorker(s, bb.Min, resolution, levels)
-			for idx := range work {
-				results[idx].tris = w.processCube(&subcubes[idx], nil)
+			buf := make([]sdf.Triangle3, 0, initialTriCap)
+			for {
+				idx := nextIdx.Add(1) - 1
+				if idx >= nSubcubes {
+					break
+				}
+				start := len(buf)
+				buf = w.processCube(subcubes[idx], buf)
+				spans[idx] = span{worker: wid, start: start, end: len(buf)}
 			}
-		}()
+			workerBufs[wid] = buf
+			releaseDirectCache(w.cache)
+		}(i)
 	}
-
-	for i := range subcubes {
-		work <- i
-	}
-	close(work)
 	wg.Wait()
 
 	// Phase 3: write triangles in subcube index order. This produces
 	// deterministic output regardless of goroutine scheduling.
 	// Convert from flat value slice to pointer slice as required by
 	// the Triangle3Writer interface.
-	for _, r := range results {
-		if len(r.tris) > 0 {
-			ptrs := make([]*sdf.Triangle3, len(r.tris))
-			for i := range r.tris {
-				ptrs[i] = &r.tris[i]
-			}
-			output.Write(ptrs)
+	//
+	// All spans share one backing pointer slice, sub-sliced per Write, so
+	// we pay one allocation instead of one per span. Triangle3Buffer.Write
+	// copies the pointer values into its internal buffer, so segments are
+	// safe to sub-slice without lifetime concerns.
+	total := 0
+	for _, sp := range spans {
+		total += sp.end - sp.start
+	}
+	allPtrs := make([]*sdf.Triangle3, total)
+	off := 0
+	for _, sp := range spans {
+		n := sp.end - sp.start
+		if n == 0 {
+			continue
 		}
+		tris := workerBufs[sp.worker][sp.start:sp.end]
+		segment := allPtrs[off : off+n]
+		for i := range tris {
+			segment[i] = &tris[i]
+		}
+		off += n
+		output.Write(segment)
 	}
 	output.Close()
 }

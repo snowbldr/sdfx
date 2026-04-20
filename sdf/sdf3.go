@@ -149,6 +149,7 @@ type ExtrudeSDF3 struct {
 	height  float64
 	extrude ExtrudeFunc
 	bb      Box3
+	isNormal bool // default NormalExtrude — skip function-pointer call in Evaluate
 }
 
 // Extrude3D does a linear extrude on an SDF3.
@@ -157,6 +158,7 @@ func Extrude3D(sdf SDF2, height float64) SDF3 {
 	s.sdf = sdf
 	s.height = height / 2
 	s.extrude = NormalExtrude
+	s.isNormal = true
 	// work out the bounding box
 	bb := sdf.BoundingBox()
 	s.bb = Box3{v3.Vec{bb.Min.X, bb.Min.Y, -s.height}, v3.Vec{bb.Max.X, bb.Max.Y, s.height}}
@@ -205,17 +207,28 @@ func ScaleTwistExtrude3D(sdf SDF2, height, twist float64, scale v2.Vec) SDF3 {
 
 // Evaluate returns the minimum distance to an extrusion.
 func (s *ExtrudeSDF3) Evaluate(p v3.Vec) float64 {
-	// sdf for the projected 2d surface
-	a := s.sdf.Evaluate(s.extrude(p))
-	// sdf for the extrusion region: z = [-height, height]
-	b := math.Abs(p.Z) - s.height
-	// return the intersection
-	return math.Max(a, b)
+	var q v2.Vec
+	if s.isNormal {
+		q = v2.Vec{X: p.X, Y: p.Y}
+	} else {
+		q = s.extrude(p)
+	}
+	a := s.sdf.Evaluate(q)
+	z := p.Z
+	if z < 0 {
+		z = -z
+	}
+	b := z - s.height
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // SetExtrude sets the extrusion control function.
 func (s *ExtrudeSDF3) SetExtrude(extrude ExtrudeFunc) {
 	s.extrude = extrude
+	s.isNormal = false
 }
 
 // BoundingBox returns the bounding box for an extrusion.
@@ -267,26 +280,27 @@ func ExtrudeRounded3D(sdf SDF2, height, round float64) (SDF3, error) {
 
 // Evaluate returns the minimum distance to a rounded extrusion.
 func (s *ExtrudeRoundedSDF3) Evaluate(p v3.Vec) float64 {
-	// sdf for the projected 2d surface
 	a := s.sdf.Evaluate(v2.Vec{p.X, p.Y})
-	b := math.Abs(p.Z) - s.height
+	z := p.Z
+	if z < 0 {
+		z = -z
+	}
+	b := z - s.height
 	var d float64
 	if b > 0 {
-		// outside the object Z extent
 		if a < 0 {
-			// inside the boundary
 			d = b
 		} else {
-			// outside the boundary
 			d = math.Sqrt((a * a) + (b * b))
 		}
 	} else {
-		// within the object Z extent
 		if a < 0 {
-			// inside the boundary
-			d = math.Max(a, b)
+			if a > b {
+				d = a
+			} else {
+				d = b
+			}
 		} else {
-			// outside the boundary
 			d = a
 		}
 	}
@@ -343,31 +357,31 @@ func Loft3D(sdf0, sdf1 SDF2, height, round float64) (SDF3, error) {
 
 // Evaluate returns the minimum distance to a loft extrusion.
 func (s *LoftSDF3) Evaluate(p v3.Vec) float64 {
-	// work out the mix value as a function of height
 	k := Clamp((0.5*p.Z/s.height)+0.5, 0, 1)
-	// mix the 2D SDFs
 	a0 := s.sdf0.Evaluate(v2.Vec{p.X, p.Y})
 	a1 := s.sdf1.Evaluate(v2.Vec{p.X, p.Y})
 	a := Mix(a0, a1, k)
 
-	b := math.Abs(p.Z) - s.height
+	z := p.Z
+	if z < 0 {
+		z = -z
+	}
+	b := z - s.height
 	var d float64
 	if b > 0 {
-		// outside the object Z extent
 		if a < 0 {
-			// inside the boundary
 			d = b
 		} else {
-			// outside the boundary
 			d = math.Sqrt((a * a) + (b * b))
 		}
 	} else {
-		// within the object Z extent
 		if a < 0 {
-			// inside the boundary
-			d = math.Max(a, b)
+			if a > b {
+				d = a
+			} else {
+				d = b
+			}
 		} else {
-			// outside the boundary
 			d = a
 		}
 	}
@@ -486,8 +500,26 @@ func Capsule3D(height, radius float64) (SDF3, error) {
 }
 
 // Evaluate returns the minimum distance to a cylinder.
+//
+// Inlines sdfBox2d with two bit-exact simplifications:
+//  1. sqrt(p.X²+p.Y²) is already nonneg so math.Abs is a no-op and dropped.
+//  2. The v2.Vec intermediaries become plain floats, skipping struct
+//     construction that the inliner otherwise has to track.
+// Profiled at 7% flat CPU in the parallel renderer, so trimming allocation
+// shape alone is worth the flattening.
 func (s *CylinderSDF3) Evaluate(p v3.Vec) float64 {
-	d := sdfBox2d(v2.Vec{v2.Vec{p.X, p.Y}.Length(), p.Z}, v2.Vec{s.radius, s.height})
+	px := math.Sqrt(p.X*p.X + p.Y*p.Y)
+	py := math.Abs(p.Z)
+	dx := px - s.radius
+	dy := py - s.height
+	var d float64
+	if dx > 0 && dy > 0 {
+		d = math.Sqrt(dx*dx + dy*dy)
+	} else if py-px > s.height-s.radius {
+		d = dy
+	} else {
+		d = dx
+	}
 	return d - s.round
 }
 
@@ -582,10 +614,16 @@ func (s *ConeSDF3) BoundingBox() Box3 {
 
 // TransformSDF3 is an SDF3 transformed with a 4x4 transformation matrix.
 type TransformSDF3 struct {
-	sdf     SDF3
-	matrix  M44
-	inverse M44
-	bb      Box3
+	sdf       SDF3
+	matrix    M44
+	inverse   M44
+	translate v3.Vec // inverse translation when isTranslate (-v for Translate3d(v))
+	bb        Box3
+	// isTranslate marks transforms that are pure translations so Evaluate
+	// can skip the 12-multiply matrix-vector product and just add translate.
+	// Translate3d is by far the most common Transform3D usage (243 call
+	// sites across the repo as of this change), so specializing it wins.
+	isTranslate bool
 }
 
 // Transform3D applies a transformation matrix to an SDF3.
@@ -595,12 +633,25 @@ func Transform3D(sdf SDF3, matrix M44) SDF3 {
 	s.matrix = matrix
 	s.inverse = matrix.Inverse()
 	s.bb = matrix.MulBox(sdf.BoundingBox())
+	// Detect translation-only inverse. MulPosition on such a matrix
+	// reduces to p + (tx,ty,tz), which is what isTranslate fast-paths.
+	inv := &s.inverse
+	if inv[0] == 1 && inv[1] == 0 && inv[2] == 0 &&
+		inv[4] == 0 && inv[5] == 1 && inv[6] == 0 &&
+		inv[8] == 0 && inv[9] == 0 && inv[10] == 1 &&
+		inv[12] == 0 && inv[13] == 0 && inv[14] == 0 && inv[15] == 1 {
+		s.isTranslate = true
+		s.translate = v3.Vec{X: inv[3], Y: inv[7], Z: inv[11]}
+	}
 	return &s
 }
 
 // Evaluate returns the minimum distance to a transformed SDF3.
 // Distance is *not* preserved with scaling.
 func (s *TransformSDF3) Evaluate(p v3.Vec) float64 {
+	if s.isTranslate {
+		return s.sdf.Evaluate(v3.Vec{X: p.X + s.translate.X, Y: p.Y + s.translate.Y, Z: p.Z + s.translate.Z})
+	}
 	return s.sdf.Evaluate(s.inverse.MulPosition(p))
 }
 
@@ -698,12 +749,13 @@ func Union3D(sdf ...SDF3) SDF3 {
 
 // Evaluate returns the minimum distance to an SDF3 union.
 func (s *UnionSDF3) Evaluate(p v3.Vec) float64 {
-	d := s.sdf[0].Evaluate(p)
+	sdfs := s.sdf
+	d := sdfs[0].Evaluate(p)
 	if s.blended {
 		// Blended/smooth min functions can produce distances smaller than
 		// either input, so we can't safely skip any child — evaluate all.
-		for i := 1; i < len(s.sdf); i++ {
-			d = s.min(d, s.sdf[i].Evaluate(p))
+		for i := 1; i < len(sdfs); i++ {
+			d = s.min(d, sdfs[i].Evaluate(p))
 		}
 		return d
 	}
@@ -712,11 +764,16 @@ func (s *UnionSDF3) Evaluate(p v3.Vec) float64 {
 	// (SDF values are always >= distance to the bounding box for exterior
 	// points). The d*d comparison works for both positive d (outside all
 	// children so far) and negative d (inside a child), since d*d = |d|^2.
-	for i := 1; i < len(s.sdf); i++ {
-		if s.boxes[i].MinDist2(p) > d*d {
+	boxes := s.boxes[:len(sdfs)] // tell the compiler boxes[i] is in-range
+	bound := d * d
+	for i := 1; i < len(sdfs); i++ {
+		if boxes[i].MinDist2GT(p, bound) {
 			continue
 		}
-		d = math.Min(d, s.sdf[i].Evaluate(p))
+		if v := sdfs[i].Evaluate(p); v < d {
+			d = v
+			bound = d * d
+		}
 	}
 	return d
 }
@@ -738,11 +795,18 @@ func (s *UnionSDF3) BoundingBox() Box3 {
 //-----------------------------------------------------------------------------
 
 // DifferenceSDF3 is the difference of two SDF3s, s0 - s1.
+//
+// When using the default hard max (math.Max), Evaluate skips the s1
+// evaluation when p is far enough from s1's bounding box that -s1 can't
+// exceed the current s0 distance. In CAD workflow s1 is typically a
+// small hole or cutout, so this avoids most child evaluations.
 type DifferenceSDF3 struct {
-	s0  SDF3
-	s1  SDF3
-	max MaxFunc
-	bb  Box3
+	s0      SDF3
+	s1      SDF3
+	max     MaxFunc
+	bb      Box3
+	s1bb    Box3 // cached bounding box of s1 for pruning
+	blended bool // true after SetMax — disables pruning
 }
 
 // Difference3D returns the difference of two SDF3s, s0 - s1.
@@ -758,17 +822,36 @@ func Difference3D(s0, s1 SDF3) SDF3 {
 	s.s1 = s1
 	s.max = math.Max
 	s.bb = s0.BoundingBox()
+	s.s1bb = s1.BoundingBox()
 	return &s
 }
 
 // Evaluate returns the minimum distance to the SDF3 difference.
 func (s *DifferenceSDF3) Evaluate(p v3.Vec) float64 {
-	return s.max(s.s0.Evaluate(p), -s.s1.Evaluate(p))
+	d0 := s.s0.Evaluate(p)
+	if s.blended {
+		return s.max(d0, -s.s1.Evaluate(p))
+	}
+	// Hard max pruning. result = max(d0, -d1).
+	// We know d1 >= sqrt(MinDist2(s1.bb, p)) for p outside s1's bbox, so
+	// -d1 <= -sqrt(MinDist2). If MinDist2 > d0*d0, then d1 > |d0|, so
+	// -d1 < d0 whether d0 is positive or negative — result = d0.
+	if s.s1bb.MinDist2GT(p, d0*d0) {
+		return d0
+	}
+	d1 := -s.s1.Evaluate(p)
+	if d1 > d0 {
+		return d1
+	}
+	return d0
 }
 
 // SetMax sets the maximum function to control blending.
+// Bbox pruning is disabled because blended max functions can produce
+// distances larger than either input.
 func (s *DifferenceSDF3) SetMax(max MaxFunc) {
 	s.max = max
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of the SDF3 difference.
@@ -816,10 +899,11 @@ func (s *ElongateSDF3) BoundingBox() Box3 {
 
 // IntersectionSDF3 is the intersection of two SDF3s.
 type IntersectionSDF3 struct {
-	s0  SDF3
-	s1  SDF3
-	max MaxFunc
-	bb  Box3
+	s0      SDF3
+	s1      SDF3
+	max     MaxFunc
+	blended bool
+	bb      Box3
 }
 
 // Intersect3D returns the intersection of two SDF3s.
@@ -838,12 +922,21 @@ func Intersect3D(s0, s1 SDF3) SDF3 {
 
 // Evaluate returns the minimum distance to the SDF3 intersection.
 func (s *IntersectionSDF3) Evaluate(p v3.Vec) float64 {
-	return s.max(s.s0.Evaluate(p), s.s1.Evaluate(p))
+	a := s.s0.Evaluate(p)
+	b := s.s1.Evaluate(p)
+	if s.blended {
+		return s.max(a, b)
+	}
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // SetMax sets the maximum function to control blending.
 func (s *IntersectionSDF3) SetMax(max MaxFunc) {
 	s.max = max
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of an SDF3 intersection.
@@ -875,7 +968,12 @@ func Cut3D(sdf SDF3, a, n v3.Vec) SDF3 {
 
 // Evaluate returns the minimum distance to the cut SDF3.
 func (s *CutSDF3) Evaluate(p v3.Vec) float64 {
-	return math.Max(p.Sub(s.a).Dot(s.n), s.sdf.Evaluate(p))
+	a := p.Sub(s.a).Dot(s.n)
+	b := s.sdf.Evaluate(p)
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // BoundingBox returns the bounding box of the cut SDF3.
@@ -887,11 +985,12 @@ func (s *CutSDF3) BoundingBox() Box3 {
 
 // ArraySDF3 stores an XYZ array of a given SDF3
 type ArraySDF3 struct {
-	sdf  SDF3
-	num  v3i.Vec
-	step v3.Vec
-	min  MinFunc
-	bb   Box3
+	sdf     SDF3
+	num     v3i.Vec
+	step    v3.Vec
+	min     MinFunc
+	blended bool
+	bb      Box3
 }
 
 // Array3D returns an XYZ array of a given SDF3
@@ -915,16 +1014,30 @@ func Array3D(sdf SDF3, num v3i.Vec, step v3.Vec) SDF3 {
 // SetMin sets the minimum function to control blending.
 func (s *ArraySDF3) SetMin(min MinFunc) {
 	s.min = min
+	s.blended = true
 }
 
 // Evaluate returns the minimum distance to an XYZ SDF3 array.
 func (s *ArraySDF3) Evaluate(p v3.Vec) float64 {
 	d := math.MaxFloat64
+	if s.blended {
+		for j := 0; j < s.num.X; j++ {
+			for k := 0; k < s.num.Y; k++ {
+				for l := 0; l < s.num.Z; l++ {
+					x := p.Sub(v3.Vec{float64(j) * s.step.X, float64(k) * s.step.Y, float64(l) * s.step.Z})
+					d = s.min(d, s.sdf.Evaluate(x))
+				}
+			}
+		}
+		return d
+	}
 	for j := 0; j < s.num.X; j++ {
 		for k := 0; k < s.num.Y; k++ {
 			for l := 0; l < s.num.Z; l++ {
 				x := p.Sub(v3.Vec{float64(j) * s.step.X, float64(k) * s.step.Y, float64(l) * s.step.Z})
-				d = s.min(d, s.sdf.Evaluate(x))
+				if v := s.sdf.Evaluate(x); v < d {
+					d = v
+				}
 			}
 		}
 	}
@@ -940,11 +1053,13 @@ func (s *ArraySDF3) BoundingBox() Box3 {
 
 // RotateUnionSDF3 creates a union of SDF3s rotated about the z-axis.
 type RotateUnionSDF3 struct {
-	sdf  SDF3
-	num  int
-	step M44
-	min  MinFunc
-	bb   Box3
+	sdf     SDF3
+	num     int
+	mats    []M44 // mats[i] = step^i (inverse), precomputed
+	childBB Box3  // sdf.BoundingBox(); tested per copy in local space
+	min     MinFunc
+	blended bool
+	bb      Box3
 }
 
 // RotateUnion3D creates a union of SDF3s rotated about the z-axis.
@@ -956,10 +1071,17 @@ func RotateUnion3D(sdf SDF3, num int, step M44) SDF3 {
 	s := RotateUnionSDF3{}
 	s.sdf = sdf
 	s.num = num
-	s.step = step.Inverse()
 	s.min = math.Min
+	s.childBB = sdf.BoundingBox()
+	// precompute inverse rotation powers so Evaluate skips per-call Mul
+	invStep := step.Inverse()
+	s.mats = make([]M44, num)
+	s.mats[0] = Identity3d()
+	for i := 1; i < num; i++ {
+		s.mats[i] = s.mats[i-1].Mul(invStep)
+	}
 	// work out the bounding box
-	v := sdf.BoundingBox().Vertices()
+	v := s.childBB.Vertices()
 	bbMin := v[0]
 	bbMax := v[0]
 	for i := 0; i < s.num; i++ {
@@ -974,11 +1096,28 @@ func RotateUnion3D(sdf SDF3, num int, step M44) SDF3 {
 // Evaluate returns the minimum distance to a rotate/union object.
 func (s *RotateUnionSDF3) Evaluate(p v3.Vec) float64 {
 	d := math.MaxFloat64
-	rot := Identity3d()
-	for i := 0; i < s.num; i++ {
-		x := rot.MulPosition(p)
-		d = s.min(d, s.sdf.Evaluate(x))
-		rot = rot.Mul(s.step)
+	mats := s.mats
+	if s.blended {
+		for i := range mats {
+			x := mats[i].MulPosition(p)
+			d = s.min(d, s.sdf.Evaluate(x))
+		}
+		return d
+	}
+	// Hard-min pruning: x sits in the child's LOCAL frame (mats[i] is the
+	// inverse of step^i), so every copy shares the same childBB. Skip a copy
+	// when x is too far from childBB for its SDF value to improve d.
+	bound := d * d
+	bb := s.childBB
+	for i := range mats {
+		x := mats[i].MulPosition(p)
+		if bb.MinDist2GT(x, bound) {
+			continue
+		}
+		if v := s.sdf.Evaluate(x); v < d {
+			d = v
+			bound = d * d
+		}
 	}
 	return d
 }
@@ -986,6 +1125,7 @@ func (s *RotateUnionSDF3) Evaluate(p v3.Vec) float64 {
 // SetMin sets the minimum function to control blending.
 func (s *RotateUnionSDF3) SetMin(min MinFunc) {
 	s.min = min
+	s.blended = true
 }
 
 // BoundingBox returns the bounding box of a rotate/union object.

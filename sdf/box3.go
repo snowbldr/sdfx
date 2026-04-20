@@ -163,18 +163,31 @@ func (a Box3) oct7() Box3 {
 // MinDist2 returns the squared minimum distance from a point to the box.
 // Returns 0 if the point is inside the box.
 //
-// For each axis, the distance contribution is:
-//   - 0 if the point is between min and max on that axis (inside the slab)
-//   - the gap to the nearest face otherwise
-//
-// Returning squared distance avoids a sqrt and is sufficient for comparisons
-// (used by UnionSDF3 to prune children whose bbox is farther than the
-// current best distance).
+// Per axis we take the larger of (min-p) and (p-max); exactly one is
+// non-negative when p is outside the slab, both are non-positive when
+// p is inside, so clamping to 0 gives the slab gap. The flat style
+// (vs nested if/else) keeps inliner cost under budget — critical
+// because UnionSDF3 / DifferenceSDF3 call this once per child per
+// evaluation on the rendering hot path.
 func (a Box3) MinDist2(p v3.Vec) float64 {
-	dx := math.Max(a.Min.X-p.X, math.Max(0, p.X-a.Max.X))
-	dy := math.Max(a.Min.Y-p.Y, math.Max(0, p.Y-a.Max.Y))
-	dz := math.Max(a.Min.Z-p.Z, math.Max(0, p.Z-a.Max.Z))
+	dx := max(a.Min.X-p.X, p.X-a.Max.X, 0)
+	dy := max(a.Min.Y-p.Y, p.Y-a.Max.Y, 0)
+	dz := max(a.Min.Z-p.Z, p.Z-a.Max.Z, 0)
 	return dx*dx + dy*dy + dz*dz
+}
+
+// MinDist2GT reports whether MinDist2(p) > bound. Short-circuits after the
+// XY-plane contribution so the Z slab math is skipped when XY alone already
+// exceeds bound — callers only want the boolean. Kept lean enough to inline.
+func (a Box3) MinDist2GT(p v3.Vec, bound float64) bool {
+	dx := max(a.Min.X-p.X, p.X-a.Max.X, 0)
+	dy := max(a.Min.Y-p.Y, p.Y-a.Max.Y, 0)
+	d2 := dx*dx + dy*dy
+	if d2 > bound {
+		return true
+	}
+	dz := max(a.Min.Z-p.Z, p.Z-a.Max.Z, 0)
+	return d2+dz*dz > bound
 }
 
 //-----------------------------------------------------------------------------

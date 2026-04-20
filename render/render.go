@@ -10,10 +10,36 @@ package render
 
 import (
 	"fmt"
+	"os"
+	"runtime/pprof"
 	"sync"
 
 	"github.com/deadsy/sdfx/sdf"
 )
+
+// maybeProfile starts a CPU profile if SDFX_CPUPROF is set and returns
+// a stop function. Used by the Render wrappers so any example picks up
+// profiling via env var with no source changes. Tag is a short label
+// (e.g. the output filename) appended to SDFX_CPUPROF to distinguish
+// profiles when a single example renders multiple STLs.
+func maybeProfile(tag string) func() {
+	path := os.Getenv("SDFX_CPUPROF")
+	if path == "" {
+		return func() {}
+	}
+	f, err := os.Create(path + "." + tag + ".pprof")
+	if err != nil {
+		return func() {}
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		f.Close()
+		return func() {}
+	}
+	return func() {
+		pprof.StopCPUProfile()
+		f.Close()
+	}
+}
 
 //-----------------------------------------------------------------------------
 
@@ -59,6 +85,8 @@ func ToSTL(
 	r Render3, // rendering method
 ) {
 	fmt.Printf("rendering %s (%s)\n", path, r.Info(s))
+	stop := maybeProfile(path)
+	defer stop()
 	// write the triangles to an STL file
 	var wg sync.WaitGroup
 	output, err := writeSTL(&wg, path)

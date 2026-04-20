@@ -101,13 +101,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(s, "plate.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(s, "plate.stl", render.NewMarchingCubesOctreeParallel(300))
 
 	s, err = airIntakeCover()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(s, "air.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(s, "air.stl", render.NewMarchingCubesOctreeParallel(300))
 
 }
 
