@@ -197,12 +197,43 @@ func ScaleExtrude3D(sdf SDF2, height float64, scale v2.Vec) SDF3 {
 	s.sdf = sdf
 	s.height = height / 2
 	s.extrude = ScaleExtrude(height, scale)
-	s.invStretch = 1
 	// work out the bounding box
 	bb := sdf.BoundingBox()
 	bb = bb.Extend(Box2{bb.Min.Mul(scale), bb.Max.Mul(scale)})
 	s.bb = Box3{v3.Vec{bb.Min.X, bb.Min.Y, -s.height}, v3.Vec{bb.Max.X, bb.Max.Y, s.height}}
+	// Lipschitz correction for the scale map f(x,y,z) = (x·s_x(z), y·s_y(z))
+	// with s_x(z) = m_x·z + b_x (b_x makes s_x(-h/2)=1, s_x(h/2)=1/scale_x).
+	// Jacobian rows: (s_x, 0, m_x·x), (0, s_y, m_y·y). For 2x2 JJᵀ:
+	//   A = s_x² + m_x²x², C = s_y² + m_y²y², B² = m_x²m_y²x²y²
+	//   λ_max = (A+C)/2 + √((A-C)²/4 + B²).
+	// λ_max is monotone in x², y² and in s_x², s_y². Its max over the volume
+	// is at one of the two z endpoints with |x|, |y| at their extreme.
+	invX := 1 / scale.X
+	invY := 1 / scale.Y
+	mx := (invX - 1) / height
+	my := (invY - 1) / height
+	xMax := math.Max(math.Abs(s.bb.Min.X), math.Abs(s.bb.Max.X))
+	yMax := math.Max(math.Abs(s.bb.Min.Y), math.Abs(s.bb.Max.Y))
+	a := mx * mx * xMax * xMax
+	c := my * my * yMax * yMax
+	sigma2 := math.Max(
+		scaleExtrudeLambdaMax(1, 1, a, c),
+		scaleExtrudeLambdaMax(invX*invX, invY*invY, a, c),
+	)
+	s.invStretch = 1
+	if sigma2 > 1 {
+		s.invStretch = 1 / math.Sqrt(sigma2)
+	}
 	return &s
+}
+
+// scaleExtrudeLambdaMax returns λ_max of the 2x2 matrix JJᵀ for the scale
+// extrude Jacobian with diagonal scale entries sx², sy² and z-column squared
+// entries a = m_x²x², c = m_y²y² (so B² = a·c).
+func scaleExtrudeLambdaMax(sx2, sy2, a, c float64) float64 {
+	A := sx2 + a
+	C := sy2 + c
+	return (A+C)/2 + math.Sqrt((A-C)*(A-C)/4+a*c)
 }
 
 // ScaleTwistExtrude3D extrudes an SDF2 and scales and twists it over the height of the extrusion.
@@ -211,12 +242,46 @@ func ScaleTwistExtrude3D(sdf SDF2, height, twist float64, scale v2.Vec) SDF3 {
 	s.sdf = sdf
 	s.height = height / 2
 	s.extrude = ScaleTwistExtrude(height, twist, scale)
-	s.invStretch = 1
 	// work out the bounding box
 	bb := sdf.BoundingBox()
 	bb = bb.Extend(Box2{bb.Min.Mul(scale), bb.Max.Mul(scale)})
 	l := bb.Max.Length()
 	s.bb = Box3{v3.Vec{-l, -l, -s.height}, v3.Vec{l, l, s.height}}
+	// Lipschitz correction for the composed map
+	//   f(x,y,z) = R(k·z) · (x·s_x(z), y·s_y(z)),   k = twist/height.
+	// Rotation is orthogonal so σ_max is invariant to R. The rotation-free
+	// Jacobian columns are (s_x,0), (0,s_y), and
+	//   ∂z = (m_x·x − k·y·s_y, k·x·s_x + m_y·y).
+	// At fixed z, λ_max(x,y) of JJᵀ is a convex quadratic form in (x,y) so
+	// its max over the 2D bbox is attained at a corner. z is checked at
+	// the two endpoints (s_x², s_y² are parabolas with interior minima).
+	k := twist / height
+	invX := 1 / scale.X
+	invY := 1 / scale.Y
+	mx := (invX - 1) / height
+	my := (invY - 1) / height
+	sigma2 := 1.0
+	zs := [2]float64{-s.height, s.height}
+	xs := [2]float64{s.bb.Min.X, s.bb.Max.X}
+	ys := [2]float64{s.bb.Min.Y, s.bb.Max.Y}
+	for _, z := range zs {
+		sx := mx*z + (invX+1)/2
+		sy := my*z + (invY+1)/2
+		for _, x := range xs {
+			for _, y := range ys {
+				j13 := mx*x - k*sy*y
+				j23 := k*sx*x + my*y
+				A := sx*sx + j13*j13
+				C := sy*sy + j23*j23
+				B := j13 * j23
+				lam := (A+C)/2 + math.Sqrt((A-C)*(A-C)/4+B*B)
+				if lam > sigma2 {
+					sigma2 = lam
+				}
+			}
+		}
+	}
+	s.invStretch = 1 / math.Sqrt(sigma2)
 	return &s
 }
 
@@ -338,6 +403,7 @@ type LoftSDF3 struct {
 	height     float64
 	round      float64
 	bb         Box3
+	invStretch float64
 }
 
 // Loft3D extrudes an SDF3 that transitions between two SDF2 shapes.
@@ -368,7 +434,40 @@ func Loft3D(sdf0, sdf1 SDF2, height, round float64) (SDF3, error) {
 	bb1 := sdf1.BoundingBox()
 	bb := bb0.Extend(bb1)
 	s.bb = Box3{v3.Vec{bb.Min.X, bb.Min.Y, -s.height}.SubScalar(round), v3.Vec{bb.Max.X, bb.Max.Y, s.height}.AddScalar(round)}
+	// Lipschitz correction. For a = Mix(a0, a1, k), k = 0.5·z/h + 0.5 with
+	// h = height/2 − round, the xy gradient is a convex combination of the
+	// two Lipschitz-1 gradients so Lip_xy ≤ 1; the z gradient is bounded by
+	// L_z = max|a1−a0|/(2h). The outer d = √(a² + b²) end-cap gives a
+	// Lipschitz of √(1 + L_z(L_z + √(L_z²+4))/2) (≥ √(1+L_z²)).
+	lz := maxAbsDifference(sdf0, sdf1, bb, 16) / (2 * s.height)
+	lend2 := 1 + lz*(lz+math.Sqrt(lz*lz+4))/2
+	s.invStretch = 1
+	if lend2 > 1 {
+		s.invStretch = 1 / math.Sqrt(lend2)
+	}
 	return &s, nil
+}
+
+// maxAbsDifference returns an upper bound on max|a0(p) − a1(p)| over bb by
+// sampling an n×n grid and adding a Lipschitz-2 between-samples safety term
+// (a0 − a1 is Lipschitz-2 since each sdf is Lipschitz-1).
+func maxAbsDifference(a0, a1 SDF2, bb Box2, n int) float64 {
+	maxDiff := 0.0
+	dx := bb.Max.X - bb.Min.X
+	dy := bb.Max.Y - bb.Min.Y
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			ti := float64(i) / float64(n-1)
+			tj := float64(j) / float64(n-1)
+			p := v2.Vec{bb.Min.X + dx*ti, bb.Min.Y + dy*tj}
+			d := math.Abs(a0.Evaluate(p) - a1.Evaluate(p))
+			if d > maxDiff {
+				maxDiff = d
+			}
+		}
+	}
+	halfDiag := math.Hypot(dx/float64(n-1), dy/float64(n-1)) / 2
+	return maxDiff + 2*halfDiag
 }
 
 // Evaluate returns the minimum distance to a loft extrusion.
@@ -401,7 +500,7 @@ func (s *LoftSDF3) Evaluate(p v3.Vec) float64 {
 			d = a
 		}
 	}
-	return d - s.round
+	return (d - s.round) * s.invStretch
 }
 
 // BoundingBox returns the bounding box for a loft extrusion.
@@ -636,6 +735,10 @@ type TransformSDF3 struct {
 	inverse   M44
 	translate v3.Vec // inverse translation when isTranslate (-v for Translate3d(v))
 	bb        Box3
+	// invStretch is 1/σ_max(M⁻¹_3x3) clamped to ≤ 1. Evaluating the inner
+	// SDF at M⁻¹·p has Lipschitz factor σ_max of that inverse linear map;
+	// scaling by invStretch restores Lipschitz-1 (safe for isEmpty skip).
+	invStretch float64
 	// isTranslate marks transforms that are pure translations so Evaluate
 	// can skip the 12-multiply matrix-vector product and just add translate.
 	// Translate3d is by far the most common Transform3D usage (243 call
@@ -659,8 +762,52 @@ func Transform3D(sdf SDF3, matrix M44) SDF3 {
 		inv[12] == 0 && inv[13] == 0 && inv[14] == 0 && inv[15] == 1 {
 		s.isTranslate = true
 		s.translate = v3.Vec{X: inv[3], Y: inv[7], Z: inv[11]}
+		s.invStretch = 1
+	} else {
+		sigma2 := m44LinearSigmaMax2(inv)
+		s.invStretch = 1
+		if sigma2 > 1 {
+			s.invStretch = 1 / math.Sqrt(sigma2)
+		}
 	}
 	return &s
+}
+
+// m44LinearSigmaMax2 returns σ_max² of the 3x3 linear block of a 4x4 matrix,
+// i.e. the largest eigenvalue of MᵀM. Uses the closed-form eigenvalue formula
+// for a 3x3 symmetric matrix (Smith 1961) — avoids iterative SVD.
+func m44LinearSigmaMax2(m *M44) float64 {
+	a, b, c := m[0], m[1], m[2]
+	d, e, f := m[4], m[5], m[6]
+	g, h, i := m[8], m[9], m[10]
+	// A = MᵀM (symmetric)
+	a00 := a*a + d*d + g*g
+	a11 := b*b + e*e + h*h
+	a22 := c*c + f*f + i*i
+	a01 := a*b + d*e + g*h
+	a02 := a*c + d*f + g*i
+	a12 := b*c + e*f + h*i
+	p1 := a01*a01 + a02*a02 + a12*a12
+	if p1 == 0 {
+		// diagonal
+		return math.Max(math.Max(a00, a11), a22)
+	}
+	q := (a00 + a11 + a22) / 3
+	d0, d1, d2 := a00-q, a11-q, a22-q
+	p2 := d0*d0 + d1*d1 + d2*d2 + 2*p1
+	p := math.Sqrt(p2 / 6)
+	// det((A - qI)/p) / 2
+	b00, b11, b22 := d0/p, d1/p, d2/p
+	b01, b02, b12 := a01/p, a02/p, a12/p
+	detB := b00*(b11*b22-b12*b12) - b01*(b01*b22-b12*b02) + b02*(b01*b12-b11*b02)
+	r := detB / 2
+	if r < -1 {
+		r = -1
+	} else if r > 1 {
+		r = 1
+	}
+	phi := math.Acos(r) / 3
+	return q + 2*p*math.Cos(phi)
 }
 
 // Evaluate returns the minimum distance to a transformed SDF3.
@@ -669,7 +816,7 @@ func (s *TransformSDF3) Evaluate(p v3.Vec) float64 {
 	if s.isTranslate {
 		return s.sdf.Evaluate(v3.Vec{X: p.X + s.translate.X, Y: p.Y + s.translate.Y, Z: p.Z + s.translate.Z})
 	}
-	return s.sdf.Evaluate(s.inverse.MulPosition(p))
+	return s.sdf.Evaluate(s.inverse.MulPosition(p)) * s.invStretch
 }
 
 // BoundingBox returns the bounding box of a transformed SDF3.
