@@ -16,7 +16,7 @@ package obj
 import (
 	"math"
 
-	"github.com/deadsy/sdfx/sdf"
+	"github.com/snowbldr/sdfx/sdf"
 )
 
 //-----------------------------------------------------------------------------

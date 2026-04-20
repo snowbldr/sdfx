@@ -4,7 +4,7 @@ import (
 	"log"
 	"math"
 
-	v3 "github.com/deadsy/sdfx/vec/v3"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 func (dc *DualContouringV2) determinant(a, b, c, d, e, f, g, h, i float64) float64 {

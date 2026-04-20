@@ -3,8 +3,8 @@ package main
 import (
 	"log"
 
-	"github.com/deadsy/sdfx/sdf"
-	v3 "github.com/deadsy/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/sdf"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 func main() {

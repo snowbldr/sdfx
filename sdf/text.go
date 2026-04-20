@@ -14,8 +14,8 @@ import (
 	"io/ioutil"
 	"strings"
 
-	v2 "github.com/deadsy/sdfx/vec/v2"
 	"github.com/golang/freetype/truetype"
+	v2 "github.com/snowbldr/sdfx/vec/v2"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )

@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	v3 "github.com/deadsy/sdfx/vec/v3"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 // Test_Screw_TaperSlope verifies that Evaluate uses tan(taper) not atan(taper)

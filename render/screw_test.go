@@ -3,7 +3,7 @@ package render
 import (
 	"testing"
 
-	"github.com/deadsy/sdfx/sdf"
+	"github.com/snowbldr/sdfx/sdf"
 )
 
 // screwTestConfig defines a screw configuration for watertightness testing.

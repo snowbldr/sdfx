@@ -9,9 +9,9 @@ Voxel-based cache/smoothing to remove deep SDF2/SDF3 hierarchies and speed up ev
 package sdf
 
 import (
-	"github.com/deadsy/sdfx/vec/conv"
-	v3 "github.com/deadsy/sdfx/vec/v3"
-	"github.com/deadsy/sdfx/vec/v3i"
+	"github.com/snowbldr/sdfx/vec/conv"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/vec/v3i"
 )
 
 //-----------------------------------------------------------------------------

@@ -11,9 +11,9 @@ package obj
 import (
 	"math"
 
-	"github.com/deadsy/sdfx/sdf"
-	v2 "github.com/deadsy/sdfx/vec/v2"
-	v3 "github.com/deadsy/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/sdf"
+	v2 "github.com/snowbldr/sdfx/vec/v2"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 //-----------------------------------------------------------------------------

@@ -12,9 +12,9 @@ import (
 	"errors"
 	"math"
 
-	"github.com/deadsy/sdfx/vec/conv"
-	v2 "github.com/deadsy/sdfx/vec/v2"
-	"github.com/deadsy/sdfx/vec/v2i"
+	"github.com/snowbldr/sdfx/vec/conv"
+	v2 "github.com/snowbldr/sdfx/vec/v2"
+	"github.com/snowbldr/sdfx/vec/v2i"
 )
 
 //-----------------------------------------------------------------------------

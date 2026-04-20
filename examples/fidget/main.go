@@ -11,13 +11,13 @@ package main
 import (
 	"log"
 
-	"github.com/deadsy/sdfx/obj"
-	"github.com/deadsy/sdfx/render"
-	"github.com/deadsy/sdfx/sdf"
-	"github.com/deadsy/sdfx/vec/conv"
-	"github.com/deadsy/sdfx/vec/p2"
-	v2 "github.com/deadsy/sdfx/vec/v2"
-	v3 "github.com/deadsy/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/obj"
+	"github.com/snowbldr/sdfx/render"
+	"github.com/snowbldr/sdfx/sdf"
+	"github.com/snowbldr/sdfx/vec/conv"
+	"github.com/snowbldr/sdfx/vec/p2"
+	v2 "github.com/snowbldr/sdfx/vec/v2"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 //-----------------------------------------------------------------------------

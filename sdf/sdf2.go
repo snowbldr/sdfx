@@ -11,11 +11,11 @@ package sdf
 import (
 	"math"
 
-	"github.com/deadsy/sdfx/vec/conv"
-	"github.com/deadsy/sdfx/vec/p2"
-	v2 "github.com/deadsy/sdfx/vec/v2"
-	"github.com/deadsy/sdfx/vec/v2i"
-	v3 "github.com/deadsy/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/vec/conv"
+	"github.com/snowbldr/sdfx/vec/p2"
+	v2 "github.com/snowbldr/sdfx/vec/v2"
+	"github.com/snowbldr/sdfx/vec/v2i"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 //-----------------------------------------------------------------------------

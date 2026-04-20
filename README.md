@@ -1,7 +1,3 @@
-
-[![Go Report Card](https://goreportcard.com/badge/github.com/deadsy/sdfx)](https://goreportcard.com/report/github.com/deadsy/sdfx)
-[![GoDoc](https://godoc.org/github.com/deadsy/sdfx?status.svg)](https://godoc.org/github.com/deadsy/sdfx/sdf)
-
 # sdfx
 
 A simple CAD package written in Go (https://golang.org/)
@@ -44,9 +40,9 @@ package main
 import (
     "log"
 
-    "github.com/deadsy/sdfx/render"
-    "github.com/deadsy/sdfx/sdf"
-    v3 "github.com/deadsy/sdfx/vec/v3"
+    "github.com/snowbldr/sdfx/render"
+    "github.com/snowbldr/sdfx/sdf"
+    v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 func main() {
@@ -63,7 +59,7 @@ func main() {
 
 ## Framework Reference
 
-All APIs live in `github.com/deadsy/sdfx/sdf` (geometry and operators) and `github.com/deadsy/sdfx/render` (rendering and file I/O). Constructors that can fail return `(SDFn, error)`; pure algebraic operators return the SDF directly.
+All APIs live in `github.com/snowbldr/sdfx/sdf` (geometry and operators) and `github.com/snowbldr/sdfx/render` (rendering and file I/O). Constructors that can fail return `(SDFn, error)`; pure algebraic operators return the SDF directly.
 
 ### 2D primitives
 

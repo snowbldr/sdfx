@@ -11,10 +11,10 @@ https://gridfinity.xyz/
 package main
 
 import (
-	"github.com/deadsy/sdfx/obj"
-	"github.com/deadsy/sdfx/render"
-	"github.com/deadsy/sdfx/vec/v2i"
-	"github.com/deadsy/sdfx/vec/v3i"
+	"github.com/snowbldr/sdfx/obj"
+	"github.com/snowbldr/sdfx/render"
+	"github.com/snowbldr/sdfx/vec/v2i"
+	"github.com/snowbldr/sdfx/vec/v3i"
 )
 
 //-----------------------------------------------------------------------------

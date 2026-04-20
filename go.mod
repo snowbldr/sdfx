@@ -1,4 +1,4 @@
-module github.com/deadsy/sdfx
+module github.com/snowbldr/sdfx
 
 go 1.25.0
 

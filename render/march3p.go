@@ -31,10 +31,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/deadsy/sdfx/sdf"
-	"github.com/deadsy/sdfx/vec/conv"
-	v3 "github.com/deadsy/sdfx/vec/v3"
-	"github.com/deadsy/sdfx/vec/v3i"
+	"github.com/snowbldr/sdfx/sdf"
+	"github.com/snowbldr/sdfx/vec/conv"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/vec/v3i"
 )
 
 //-----------------------------------------------------------------------------
@@ -51,7 +51,7 @@ import (
 // the overhead of hashing, bucket chains, and GC scanning.
 
 type cacheEntry struct {
-	key uint64  // packed v3i.Vec; 0 = empty sentinel
+	key uint64 // packed v3i.Vec; 0 = empty sentinel
 	val float64
 }
 

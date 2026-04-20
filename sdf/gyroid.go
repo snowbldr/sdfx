@@ -10,7 +10,7 @@ https://en.wikipedia.org/wiki/Gyroid
 
 package sdf
 
-import v3 "github.com/deadsy/sdfx/vec/v3"
+import v3 "github.com/snowbldr/sdfx/vec/v3"
 
 //-----------------------------------------------------------------------------
 

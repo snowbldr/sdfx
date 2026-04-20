@@ -12,9 +12,9 @@ import (
 	"log"
 	"math"
 
-	"github.com/deadsy/sdfx/obj"
-	"github.com/deadsy/sdfx/render"
-	"github.com/deadsy/sdfx/sdf"
+	"github.com/snowbldr/sdfx/obj"
+	"github.com/snowbldr/sdfx/render"
+	"github.com/snowbldr/sdfx/sdf"
 )
 
 //-----------------------------------------------------------------------------

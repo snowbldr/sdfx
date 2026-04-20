@@ -25,9 +25,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/deadsy/sdfx/sdf"
-	v3 "github.com/deadsy/sdfx/vec/v3"
 	"github.com/hpinc/go3mf"
+	"github.com/snowbldr/sdfx/sdf"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 //-----------------------------------------------------------------------------

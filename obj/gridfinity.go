@@ -11,11 +11,11 @@ https://gridfinity.xyz/
 package obj
 
 import (
-	"github.com/deadsy/sdfx/sdf"
-	v2 "github.com/deadsy/sdfx/vec/v2"
-	"github.com/deadsy/sdfx/vec/v2i"
-	v3 "github.com/deadsy/sdfx/vec/v3"
-	"github.com/deadsy/sdfx/vec/v3i"
+	"github.com/snowbldr/sdfx/sdf"
+	v2 "github.com/snowbldr/sdfx/vec/v2"
+	"github.com/snowbldr/sdfx/vec/v2i"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/vec/v3i"
 )
 
 //-----------------------------------------------------------------------------

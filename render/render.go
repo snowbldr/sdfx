@@ -14,7 +14,7 @@ import (
 	"runtime/pprof"
 	"sync"
 
-	"github.com/deadsy/sdfx/sdf"
+	"github.com/snowbldr/sdfx/sdf"
 )
 
 // maybeProfile starts a CPU profile if SDFX_CPUPROF is set and returns

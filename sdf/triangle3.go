@@ -11,8 +11,8 @@ package sdf
 import (
 	"sync"
 
-	v3 "github.com/deadsy/sdfx/vec/v3"
 	"github.com/dhconnelly/rtreego"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 //-----------------------------------------------------------------------------

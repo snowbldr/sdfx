@@ -17,11 +17,11 @@ import (
 	"log"
 	"math"
 
-	"github.com/deadsy/sdfx/sdf"
-	"github.com/deadsy/sdfx/vec/conv"
-	"github.com/deadsy/sdfx/vec/v2i"
-	v3 "github.com/deadsy/sdfx/vec/v3"
-	"github.com/deadsy/sdfx/vec/v3i"
+	"github.com/snowbldr/sdfx/sdf"
+	"github.com/snowbldr/sdfx/vec/conv"
+	"github.com/snowbldr/sdfx/vec/v2i"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/vec/v3i"
 )
 
 //-----------------------------------------------------------------------------

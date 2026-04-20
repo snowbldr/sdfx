@@ -12,11 +12,11 @@ import (
 	"errors"
 	"math"
 
-	"github.com/deadsy/sdfx/vec/conv"
-	"github.com/deadsy/sdfx/vec/p2"
-	v2 "github.com/deadsy/sdfx/vec/v2"
-	v3 "github.com/deadsy/sdfx/vec/v3"
-	"github.com/deadsy/sdfx/vec/v3i"
+	"github.com/snowbldr/sdfx/vec/conv"
+	"github.com/snowbldr/sdfx/vec/p2"
+	v2 "github.com/snowbldr/sdfx/vec/v2"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/vec/v3i"
 )
 
 //-----------------------------------------------------------------------------
@@ -145,10 +145,10 @@ func (s *SorSDF3) BoundingBox() Box3 {
 
 // ExtrudeSDF3 extrudes an SDF2 to an SDF3.
 type ExtrudeSDF3 struct {
-	sdf     SDF2
-	height  float64
-	extrude ExtrudeFunc
-	bb      Box3
+	sdf      SDF2
+	height   float64
+	extrude  ExtrudeFunc
+	bb       Box3
 	isNormal bool // default NormalExtrude — skip function-pointer call in Evaluate
 }
 
@@ -505,6 +505,7 @@ func Capsule3D(height, radius float64) (SDF3, error) {
 //  1. sqrt(p.X²+p.Y²) is already nonneg so math.Abs is a no-op and dropped.
 //  2. The v2.Vec intermediaries become plain floats, skipping struct
 //     construction that the inliner otherwise has to track.
+//
 // Profiled at 7% flat CPU in the parallel renderer, so trimming allocation
 // shape alone is worth the flattening.
 func (s *CylinderSDF3) Evaluate(p v3.Vec) float64 {

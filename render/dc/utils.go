@@ -1,6 +1,6 @@
 package dc
 
-import "github.com/deadsy/sdfx/sdf"
+import "github.com/snowbldr/sdfx/sdf"
 
 //-----------------------------------------------------------------------------
 // UTILITIES/MISC

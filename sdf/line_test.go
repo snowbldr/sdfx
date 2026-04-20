@@ -12,7 +12,7 @@ import (
 	"sort"
 	"testing"
 
-	v2 "github.com/deadsy/sdfx/vec/v2"
+	v2 "github.com/snowbldr/sdfx/vec/v2"
 )
 
 //-----------------------------------------------------------------------------

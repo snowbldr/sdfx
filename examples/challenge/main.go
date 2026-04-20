@@ -7,7 +7,7 @@ package main
 import (
 	"log"
 
-	"github.com/deadsy/sdfx/render"
+	"github.com/snowbldr/sdfx/render"
 )
 
 //-----------------------------------------------------------------------------

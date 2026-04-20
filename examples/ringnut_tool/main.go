@@ -9,7 +9,7 @@ This is a tool for removing them.
 This design is for the Mazda 2006 RX-8 (Series1)
 Other ring nuts are similar, so feel free to modify.
 
-https://github.com/deadsy/sdfx/blob/master/examples/ringnut_tool/main.go
+https://github.com/snowbldr/sdfx/blob/master/examples/ringnut_tool/main.go
 
 Notes:
 
@@ -28,10 +28,10 @@ package main
 import (
 	"log"
 
-	"github.com/deadsy/sdfx/obj"
-	"github.com/deadsy/sdfx/render"
-	"github.com/deadsy/sdfx/sdf"
-	v3 "github.com/deadsy/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/obj"
+	"github.com/snowbldr/sdfx/render"
+	"github.com/snowbldr/sdfx/sdf"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 //-----------------------------------------------------------------------------

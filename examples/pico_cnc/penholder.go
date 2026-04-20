@@ -11,9 +11,9 @@ Inspired by: https://www.thingiverse.com/thing:2625750)
 package main
 
 import (
-	"github.com/deadsy/sdfx/obj"
-	"github.com/deadsy/sdfx/sdf"
-	v3 "github.com/deadsy/sdfx/vec/v3"
+	"github.com/snowbldr/sdfx/obj"
+	"github.com/snowbldr/sdfx/sdf"
+	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
 
 //-----------------------------------------------------------------------------

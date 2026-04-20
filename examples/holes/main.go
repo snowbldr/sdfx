@@ -15,10 +15,10 @@ package main
 import (
 	"log"
 
-	"github.com/deadsy/sdfx/obj"
-	"github.com/deadsy/sdfx/render"
-	"github.com/deadsy/sdfx/sdf"
-	v2 "github.com/deadsy/sdfx/vec/v2"
+	"github.com/snowbldr/sdfx/obj"
+	"github.com/snowbldr/sdfx/render"
+	"github.com/snowbldr/sdfx/sdf"
+	v2 "github.com/snowbldr/sdfx/vec/v2"
 )
 
 //-----------------------------------------------------------------------------
