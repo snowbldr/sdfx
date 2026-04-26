@@ -247,11 +247,18 @@ func RotateToVector(a, b v3.Vec) M44 {
 	}
 	// are the vectors opposite (180 degrees apart)?
 	if a.Neg().Equals(b, epsilon) {
-		return M44{
-			-1, 0, 0, 0,
-			0, -1, 0, 0,
-			0, 0, -1, 0,
-			0, 0, 0, 1}
+		// 180° rotation around any axis perpendicular to a. Cross with whichever
+		// standard basis vector is least parallel to a so the cross product is
+		// well-conditioned.
+		var ref v3.Vec
+		if math.Abs(a.X) < math.Abs(a.Y) && math.Abs(a.X) < math.Abs(a.Z) {
+			ref = v3.Vec{X: 1}
+		} else if math.Abs(a.Y) < math.Abs(a.Z) {
+			ref = v3.Vec{Y: 1}
+		} else {
+			ref = v3.Vec{Z: 1}
+		}
+		return Rotate3d(a.Cross(ref).Normalize(), math.Pi)
 	}
 	// general case
 	// See:	https://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
