@@ -79,6 +79,47 @@ func (a Box3) Contains(v v3.Vec) bool {
 		v.Z <= a.Max.Z
 }
 
+// Clip returns the smallest axis-aligned box containing the intersection of
+// this box with the half-space {p : (p - point) . normal >= 0}. If the box
+// lies entirely on the negative side, a degenerate empty box at point is
+// returned.
+func (a Box3) Clip(point, normal v3.Vec) Box3 {
+	verts := a.Vertices()
+	dists := make([]float64, len(verts))
+	for i, v := range verts {
+		dists[i] = v.Sub(point).Dot(normal)
+	}
+	var pts []v3.Vec
+	for i, v := range verts {
+		if dists[i] >= 0 {
+			pts = append(pts, v)
+		}
+	}
+	// Edges connect vertices that differ in exactly one coordinate.
+	// Vertex order from Vertices(): bit 0 = Z, bit 1 = Y, bit 2 = X.
+	edges := [12][2]int{
+		{0, 1}, {2, 3}, {4, 5}, {6, 7}, // Z edges
+		{0, 2}, {1, 3}, {4, 6}, {5, 7}, // Y edges
+		{0, 4}, {1, 5}, {2, 6}, {3, 7}, // X edges
+	}
+	for _, e := range edges {
+		d0, d1 := dists[e[0]], dists[e[1]]
+		if (d0 > 0 && d1 < 0) || (d0 < 0 && d1 > 0) {
+			t := d0 / (d0 - d1)
+			v0, v1 := verts[e[0]], verts[e[1]]
+			pts = append(pts, v0.Add(v1.Sub(v0).MulScalar(t)))
+		}
+	}
+	if len(pts) == 0 {
+		return Box3{Min: point, Max: point}
+	}
+	out := Box3{Min: pts[0], Max: pts[0]}
+	for _, p := range pts[1:] {
+		out = out.Include(p)
+	}
+	return out
+}
+
 // Vertices returns a slice of 3d box corner vertices.
 func (a Box3) Vertices() v3.VecSet {
 	return []v3.Vec{

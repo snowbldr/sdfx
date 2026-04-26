@@ -80,6 +80,45 @@ func (a Box2) Contains(v v2.Vec) bool {
 		v.Y <= a.Max.Y
 }
 
+// Clip returns the smallest axis-aligned box containing the intersection of
+// this box with the half-plane {p : (p - point) . normal >= 0}. If the box
+// lies entirely on the negative side, a degenerate empty box at point is
+// returned.
+func (a Box2) Clip(point, normal v2.Vec) Box2 {
+	verts := a.Vertices()
+	dists := make([]float64, len(verts))
+	for i, v := range verts {
+		dists[i] = v.Sub(point).Dot(normal)
+	}
+	var pts []v2.Vec
+	for i, v := range verts {
+		if dists[i] >= 0 {
+			pts = append(pts, v)
+		}
+	}
+	// Vertex order from Vertices(): 0=bl, 1=br, 2=tl, 3=tr.
+	edges := [4][2]int{
+		{0, 1}, {2, 3}, // X edges (differ in X)
+		{0, 2}, {1, 3}, // Y edges (differ in Y)
+	}
+	for _, e := range edges {
+		d0, d1 := dists[e[0]], dists[e[1]]
+		if (d0 > 0 && d1 < 0) || (d0 < 0 && d1 > 0) {
+			t := d0 / (d0 - d1)
+			v0, v1 := verts[e[0]], verts[e[1]]
+			pts = append(pts, v0.Add(v1.Sub(v0).MulScalar(t)))
+		}
+	}
+	if len(pts) == 0 {
+		return Box2{Min: point, Max: point}
+	}
+	out := Box2{Min: pts[0], Max: pts[0]}
+	for _, p := range pts[1:] {
+		out = out.Include(p)
+	}
+	return out
+}
+
 // Vertices returns a slice of 2d box corner vertices.
 func (a Box2) Vertices() v2.VecSet {
 	return []v2.Vec{

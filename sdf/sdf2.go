@@ -237,8 +237,8 @@ func Cut2D(sdf SDF2, a, v v2.Vec) SDF2 {
 	s.a = a
 	v = v.Normalize()
 	s.n = v2.Vec{-v.Y, v.X}
-	// TODO - cut the bounding box
-	s.bb = sdf.BoundingBox()
+	// Kept side is to the right of v, i.e. (p - a) . (-s.n) >= 0.
+	s.bb = sdf.BoundingBox().Clip(a, v2.Vec{v.Y, -v.X})
 	return &s
 }
 

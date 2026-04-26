@@ -1125,8 +1125,7 @@ func Cut3D(sdf SDF3, a, n v3.Vec) SDF3 {
 	s.sdf = sdf
 	s.a = a
 	s.n = n.Normalize().Neg()
-	// TODO - cut the bounding box
-	s.bb = sdf.BoundingBox()
+	s.bb = sdf.BoundingBox().Clip(a, n)
 	return &s
 }
 
