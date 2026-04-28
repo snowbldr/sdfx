@@ -189,8 +189,8 @@ func Intersect2D(s0, s1 SDF2) SDF2 {
 	s.s0 = s0
 	s.s1 = s1
 	s.max = math.Max
-	// TODO fix bounding box
-	s.bb = s0.BoundingBox()
+	// See IntersectionSDF3 for why the AABB intersection is tight.
+	s.bb = s0.BoundingBox().Intersect(s1.BoundingBox())
 	return &s
 }
 
@@ -369,10 +369,14 @@ func Array2D(sdf SDF2, num v2i.Vec, step v2.Vec) SDF2 {
 	return &s
 }
 
-// SetMin sets the minimum function to control blending.
+// SetMin sets the minimum function to control blending. See UnionSDF3.SetMin
+// for the bbox-padding rationale; the same -min(0, 0) reach sample applies.
 func (s *ArraySDF2) SetMin(min MinFunc) {
 	s.min = min
 	s.blended = true
+	if reach := -min(0, 0); reach > 0 {
+		s.bb = s.bb.Enlarge(v2.Vec{X: 2 * reach, Y: 2 * reach})
+	}
 }
 
 // Evaluate returns the minimum distance to a grid array of SDF2s.
@@ -461,10 +465,14 @@ func (s *RotateUnionSDF2) Evaluate(p v2.Vec) float64 {
 	return d
 }
 
-// SetMin sets the minimum function to control blending.
+// SetMin sets the minimum function to control blending. See UnionSDF3.SetMin
+// for the bbox-padding rationale; the same -min(0, 0) reach sample applies.
 func (s *RotateUnionSDF2) SetMin(min MinFunc) {
 	s.min = min
 	s.blended = true
+	if reach := -min(0, 0); reach > 0 {
+		s.bb = s.bb.Enlarge(v2.Vec{X: 2 * reach, Y: 2 * reach})
+	}
 }
 
 // BoundingBox returns the bounding box of a union of rotated SDF2s.
@@ -656,10 +664,15 @@ func (s *UnionSDF2) Evaluate(p v2.Vec) float64 {
 
 // SetMin sets the minimum function to control SDF2 blending.
 // Bbox pruning is disabled because blended min functions can produce
-// distances smaller than either input (see UnionSDF3.SetMin).
+// distances smaller than either input (see UnionSDF3.SetMin). The bbox
+// is also padded by -min(0, 0) on each side to cover the smooth fillet's
+// outward reach.
 func (s *UnionSDF2) SetMin(min MinFunc) {
 	s.min = min
 	s.blended = true
+	if reach := -min(0, 0); reach > 0 {
+		s.bb = s.bb.Enlarge(v2.Vec{X: 2 * reach, Y: 2 * reach})
+	}
 }
 
 // BoundingBox returns the bounding box of an SDF2 union.

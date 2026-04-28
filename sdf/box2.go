@@ -35,6 +35,19 @@ func (a Box2) Extend(b Box2) Box2 {
 	return Box2{a.Min.Min(b.Min), a.Max.Max(b.Max)}
 }
 
+// Intersect returns the AABB intersection of two 2d boxes. If the boxes are
+// disjoint, returns a degenerate box (Min == Max) at the midpoint of the
+// closest gap so callers can still construct a valid (empty-surface) SDF.
+func (a Box2) Intersect(b Box2) Box2 {
+	lo := a.Min.Max(b.Min)
+	hi := a.Max.Min(b.Max)
+	if lo.X > hi.X || lo.Y > hi.Y {
+		mid := lo.Add(hi).MulScalar(0.5)
+		return Box2{Min: mid, Max: mid}
+	}
+	return Box2{Min: lo, Max: hi}
+}
+
 // Include enlarges a 2d box to include a point.
 func (a Box2) Include(v v2.Vec) Box2 {
 	return Box2{a.Min.Min(v), a.Max.Max(v)}

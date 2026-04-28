@@ -946,9 +946,20 @@ func (s *UnionSDF3) Evaluate(p v3.Vec) float64 {
 // Bbox pruning is disabled because blended min functions (e.g. smooth union)
 // can produce distances smaller than either input, making it unsafe to skip
 // children based on bounding box distance alone.
+//
+// The bounding box is also padded outward by the blend's reach, sampled as
+// -min(0, 0). For translation-invariant smooth-min families (Round, Chamfer,
+// Poly, Exp), this is exactly how far the smooth surface protrudes past the
+// hard union, so the renderer no longer clips the fillet flat. PowMin is
+// scale-dependent and returns 0 here; if you use PowMin and need its outward
+// extension included, wrap the result in a Box3D-clamped union or pad the
+// bbox explicitly.
 func (s *UnionSDF3) SetMin(min MinFunc) {
 	s.min = min
 	s.blended = true
+	if reach := -min(0, 0); reach > 0 {
+		s.bb = s.bb.Enlarge(v3.Vec{X: 2 * reach, Y: 2 * reach, Z: 2 * reach})
+	}
 }
 
 // BoundingBox returns the bounding box of an SDF3 union.
@@ -1079,8 +1090,11 @@ func Intersect3D(s0, s1 SDF3) SDF3 {
 	s.s0 = s0
 	s.s1 = s1
 	s.max = math.Max
-	// TODO fix bounding box
-	s.bb = s0.BoundingBox()
+	// Intersection ⊆ s0 ∧ s1, so the AABB intersection of the two child
+	// bboxes is a tight conservative bound. Smooth-max never expands this
+	// (smooth-max ≥ max ⇒ smooth solid ⊆ hard solid), so SetMax doesn't
+	// need to grow it.
+	s.bb = s0.BoundingBox().Intersect(s1.BoundingBox())
 	return &s
 }
 
@@ -1174,10 +1188,14 @@ func Array3D(sdf SDF3, num v3i.Vec, step v3.Vec) SDF3 {
 	return &s
 }
 
-// SetMin sets the minimum function to control blending.
+// SetMin sets the minimum function to control blending. See UnionSDF3.SetMin
+// for the bbox-padding rationale; the same -min(0, 0) reach sample applies.
 func (s *ArraySDF3) SetMin(min MinFunc) {
 	s.min = min
 	s.blended = true
+	if reach := -min(0, 0); reach > 0 {
+		s.bb = s.bb.Enlarge(v3.Vec{X: 2 * reach, Y: 2 * reach, Z: 2 * reach})
+	}
 }
 
 // Evaluate returns the minimum distance to an XYZ SDF3 array.
@@ -1285,10 +1303,14 @@ func (s *RotateUnionSDF3) Evaluate(p v3.Vec) float64 {
 	return d
 }
 
-// SetMin sets the minimum function to control blending.
+// SetMin sets the minimum function to control blending. See UnionSDF3.SetMin
+// for the bbox-padding rationale; the same -min(0, 0) reach sample applies.
 func (s *RotateUnionSDF3) SetMin(min MinFunc) {
 	s.min = min
 	s.blended = true
+	if reach := -min(0, 0); reach > 0 {
+		s.bb = s.bb.Enlarge(v3.Vec{X: 2 * reach, Y: 2 * reach, Z: 2 * reach})
+	}
 }
 
 // BoundingBox returns the bounding box of a rotate/union object.

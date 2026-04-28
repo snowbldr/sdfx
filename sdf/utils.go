@@ -151,36 +151,93 @@ func SawTooth(x, period float64) float64 {
 // MinFunc is a minimum functions for SDF blending.
 type MinFunc func(a, b float64) float64
 
-// RoundMin returns a minimum function that uses a quarter-circle to join the two objects smoothly.
+// RoundMin returns a minimum function that uses a quarter-circle to join
+// the two objects smoothly.
+//
+// Implementation is Inigo Quilez's `sminCircular`. The previous formula
+// (max(k, min(a,b)) - length(max(k-a,0), max(k-b,0))) had a spatial
+// gradient up to √2 wherever ∇a ≈ ∇b inside both shapes — the configuration
+// you hit on the line between two overlapping spheres — so the SDF wasn't
+// a valid distance estimator and the renderer's octree pruning
+// (|f| ≥ half-diagonal ⇒ skip) dropped surface cells, producing holes.
+// sminCircular is 1-Lipschitz everywhere.
+//
+// The fillet extends ~0.293·k outward from the sharp-corner point — the
+// same surface offset the previous formula produced at coincident inputs,
+// chosen so existing call sites' k tunings keep their look. (The IQ
+// article's "k = fillet radius" rescaling — k *= 1/(1-√½) — is omitted
+// for that reason.)
 func RoundMin(k float64) MinFunc {
 	return func(a, b float64) float64 {
-		u := v2.Vec{k - a, k - b}.Max(v2.Vec{0, 0})
-		return math.Max(k, math.Min(a, b)) - u.Length()
+		h := math.Max(k-math.Abs(a-b), 0) / k
+		return math.Min(a, b) - k*0.5*(1+h-math.Sqrt(1-h*(h-2)))
 	}
 }
 
-// ChamferMin returns a minimum function that makes a 45-degree chamfered edge (the diagonal of a square of size <r>).
-// TODO: why the holes in the rendering?
+// ChamferMin returns a minimum function that makes a chamfered edge.
+//
+// The factor on the chamfer plane is 1/2 rather than the textbook 1/√2 so
+// the result stays a valid distance estimator for arbitrary input SDFs.
+// (a+b-k)/√2 has gradient magnitude up to √2 — exactly 1 only when ∇a⊥∇b
+// — so combining curved SDFs would let it overshoot the true distance and
+// produce holes when the renderer's octree pruning trusts |f| as a lower
+// bound on distance to the surface. Dividing by 2 caps the gradient at 1
+// in every input configuration; the geometric tradeoff is a slightly
+// shallower chamfer angle than 45° when the input surfaces are planar.
 func ChamferMin(k float64) MinFunc {
 	return func(a, b float64) float64 {
-		return math.Min(math.Min(a, b), (a-k+b)*sqrtHalf)
+		return math.Min(math.Min(a, b), (a+b-k)*0.5)
 	}
 }
 
 // ExpMin returns a minimum function with exponential smoothing (k = 32).
+//
+// The implementation factors out max(a,b) so exp arguments stay non-positive,
+// avoiding overflow when k·max(|a|,|b|) is large (without the shift,
+// k=32, a=-23 already overflows double).
 func ExpMin(k float64) MinFunc {
 	return func(a, b float64) float64 {
-		return -math.Log(math.Exp(-k*a)+math.Exp(-k*b)) / k
+		// -log(e^-ka + e^-kb)/k  =  m - log(e^-k(a-m) + e^-k(b-m))/k  with m = min(a,b).
+		// Picking m = min keeps both shifted args ≥ 0 → e^-k·shift ∈ (0, 1].
+		m := math.Min(a, b)
+		return m - math.Log(math.Exp(-k*(a-m))+math.Exp(-k*(b-m)))/k
 	}
 }
 
-// PowMin returns  a minimum function (k = 8).
-// TODO - weird results, is this correct?
+// PowMin returns a minimum function (k = 8).
+//
+// The IQ "power smooth min" is only defined for positive distances — the
+// raw a^k / b^k formula returns NaN whenever either argument is negative
+// and k is non-integer, which happens at any SDF point inside either shape.
+// Operating on |a|, |b| keeps the algebra well-defined and keeps the
+// resulting field 1-Lipschitz so the renderer's pruning stays sound, but
+// the both-negative branch is conservative rather than exact: |result| is
+// the smaller of |a|, |b|, whereas math.Min picks the larger-magnitude
+// (more-deeply-interior) value. PolyMin is the recommended smooth-min for
+// SDF blending; this function is kept as the "soft minimum on positive
+// distances" variant (e.g. shadow / AO blending).
 func PowMin(k float64) MinFunc {
 	return func(a, b float64) float64 {
-		a = math.Pow(a, k)
-		b = math.Pow(b, k)
-		return math.Pow((a*b)/(a+b), 1/k)
+		ax, bx := math.Abs(a), math.Abs(b)
+		M, m := ax, bx
+		if bx > ax {
+			M, m = bx, ax
+		}
+		// Algebraically equivalent to the textbook
+		//   ((|a|^k · |b|^k) / (|a|^k + |b|^k))^(1/k)
+		// but factored as m / (1 + (m/M)^k)^(1/k) to avoid the underflow
+		// that hits both numerator and denominator when k|log a| ≳ 700.
+		// (m/M) ≤ 1 → the inner pow stays in [0, 1] regardless of k.
+		var mag float64
+		if M == 0 {
+			mag = 0
+		} else {
+			mag = m / math.Pow(1+math.Pow(m/M, k), 1/k)
+		}
+		if a < 0 || b < 0 {
+			return -mag
+		}
+		return mag
 	}
 }
 
@@ -200,6 +257,47 @@ func PolyMin(k float64) MinFunc {
 
 // MaxFunc is a maximum function for SDF blending.
 type MaxFunc func(a, b float64) float64
+
+// Each MaxFunc is the negation-dual of the matching MinFunc:
+//   MaxFunc(a, b) = -MinFunc(-a, -b)
+// The duality preserves Lipschitz-1 (negation is an isometry), so any
+// distance-estimator property of the MinFunc carries over.
+
+// RoundMax returns a maximum function that joins with a quarter-circle fillet.
+// Useful for smoothing the corner of a Difference3D / Intersection3D.
+func RoundMax(k float64) MaxFunc {
+	min := RoundMin(k)
+	return func(a, b float64) float64 {
+		return -min(-a, -b)
+	}
+}
+
+// ChamferMax returns a maximum function that makes a chamfered edge at
+// the corner of a Difference3D / Intersection3D. See ChamferMin for the
+// note on Lipschitz-correctness.
+func ChamferMax(k float64) MaxFunc {
+	min := ChamferMin(k)
+	return func(a, b float64) float64 {
+		return -min(-a, -b)
+	}
+}
+
+// ExpMax returns a maximum function with exponential smoothing (k = 32).
+func ExpMax(k float64) MaxFunc {
+	min := ExpMin(k)
+	return func(a, b float64) float64 {
+		return -min(-a, -b)
+	}
+}
+
+// PowMax returns a maximum function (k = 8). See PowMin for the note on
+// negative-input handling.
+func PowMax(k float64) MaxFunc {
+	min := PowMin(k)
+	return func(a, b float64) float64 {
+		return -min(-a, -b)
+	}
+}
 
 // PolyMax returns a maximum function (Try k = 0.1, a bigger k gives a bigger fillet).
 func PolyMax(k float64) MaxFunc {
