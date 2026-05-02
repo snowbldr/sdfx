@@ -4,8 +4,86 @@ import (
 	"math"
 	"testing"
 
+	v2 "github.com/snowbldr/sdfx/vec/v2"
 	v3 "github.com/snowbldr/sdfx/vec/v3"
 )
+
+// Test_Buttress_WrapContinuity verifies that asymmetric buttress thread
+// profiles produce the same SDF at x = +pitch/2 and x = -pitch/2 — the
+// SawTooth wrap boundary. A discontinuity here would cause octree marching
+// cubes to skip cubes straddling the boundary and produce mesh holes; the
+// 2-period polygon design is what makes the SDF wrap-continuous.
+func Test_Buttress_WrapContinuity(t *testing.T) {
+	cases := []struct {
+		name   string
+		make   func(r, p float64) (SDF2, error)
+		radius float64
+		pitch  float64
+	}{
+		{"ANSI", ANSIButtressThread, 5, 2},
+		{"Plastic", PlasticButtressThread, 5, 2},
+		{"ANSI_steep", ANSIButtressThread, 2.5, 3},
+		{"Plastic_steep", PlasticButtressThread, 2.5, 3},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, err := c.make(c.radius, c.pitch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hp := c.pitch / 2
+			// Sample a vertical line of points at the wrap boundary, comparing
+			// SDF(+pitch/2, y) vs SDF(-pitch/2, y) at radii covering the
+			// thread region. Tolerance is generous enough to absorb numerical
+			// noise from polygon edge intersections, but tight enough to
+			// catch the ~0.4mm gap that the periodic union previously masked.
+			tol := 1e-6
+			for _, y := range []float64{c.radius - 0.1, c.radius - 0.3, c.radius - 0.5, c.radius} {
+				dR := s.Evaluate(v2.Vec{X: hp, Y: y})
+				dL := s.Evaluate(v2.Vec{X: -hp, Y: y})
+				if math.Abs(dR-dL) > tol {
+					t.Errorf("y=%.3f: SDF discontinuous at wrap: dR(%+.4f)=%+.6f dL(%+.4f)=%+.6f delta=%.6f",
+						y, hp, dR, -hp, dL, dR-dL)
+				}
+			}
+		})
+	}
+}
+
+// Test_Screw3D_RejectsDiscontinuousProfile verifies that Screw3D refuses to
+// build a screw from a thread profile whose SDF is discontinuous at the
+// SawTooth wrap boundary (x=±pitch/2). Such profiles silently produce holes
+// in octree-rendered meshes, so we fail fast at construction. A user-defined
+// asymmetric profile with flat scaffolding extensions (which is exactly the
+// shape the original buttress profiles had) is the canonical example.
+func Test_Screw3D_RejectsDiscontinuousProfile(t *testing.T) {
+	// Asymmetric profile shaped like a buttress: notch at x=+pitch/4 with a
+	// near-vertical right flank and a 45° left flank, with flat-crest
+	// scaffolding extending from the period boundaries to ±pitch. SDF at
+	// x=+pitch/2 sees the near-vertical flank just to the left; SDF at
+	// x=-pitch/2 sees nothing nearby — so the wrap is discontinuous.
+	pitch := 2.0
+	radius := 5.0
+	depth := 0.6
+	tp := NewPolygon()
+	tp.Add(pitch, 0)
+	tp.Add(pitch, radius)
+	tp.Add(pitch/2+0.05, radius)  // gentle (right) flank top
+	tp.Add(pitch/4, radius-depth) // valley root, asymmetric position
+	tp.Add(pitch/4-depth, radius) // 45° (left) flank top
+	tp.Add(-pitch, radius)
+	tp.Add(-pitch, 0)
+	bad, err := Polygon2D(tp.Vertices())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Screw3D(bad, 10, 0, pitch, 1)
+	if err == nil {
+		t.Fatalf("Screw3D accepted a discontinuous thread profile; expected an error")
+	}
+	t.Logf("got expected rejection: %s", err)
+}
 
 // Test_Screw_TaperSlope verifies that Evaluate uses tan(taper) not atan(taper)
 // for the taper slope computation. At 30° the error is 16.5%.
