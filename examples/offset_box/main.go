@@ -62,8 +62,8 @@ func box() error {
 	base := sdf.Cut3D(box, v3.Vec{0, 0, lidZ}, v3.Vec{0, 0, -1})
 	top := sdf.Cut3D(box, v3.Vec{0, 0, lidZ}, v3.Vec{0, 0, 1})
 
-	render.ToSTL(base, "base.stl", render.NewMarchingCubesOctreeParallel(300))
-	render.ToSTL(top, "top.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(base, "base.stl", render.NewMarchingCubesOctree(300))
+	render.ToSTL(top, "top.stl", render.NewMarchingCubesOctree(300))
 
 	return nil
 }

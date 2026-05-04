@@ -97,7 +97,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(s, "camshaft.stl", render.NewMarchingCubesOctreeParallel(400))
+	render.ToSTL(s, "camshaft.stl", render.NewMarchingCubesOctree(400))
 }
 
 //-----------------------------------------------------------------------------

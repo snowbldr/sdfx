@@ -259,28 +259,28 @@ func main() {
 		log.Fatalf("error: %s", err)
 	}
 	p0 = sdf.ScaleUniform3D(p0, shrink)
-	render.ToSTL(p0, "reducer.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(p0, "reducer.stl", render.NewMarchingCubesOctree(300))
 
 	p1, err := entranceWheel()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
 	p1 = sdf.ScaleUniform3D(p1, shrink)
-	render.ToSTL(p1, "wheel.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(p1, "wheel.stl", render.NewMarchingCubesOctree(300))
 
 	p2, err := wheelRetainer()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
 	p2 = sdf.ScaleUniform3D(p2, shrink)
-	render.ToSTL(p2, "retainer.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(p2, "retainer.stl", render.NewMarchingCubesOctree(300))
 
 	p3, err := antCap()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
 	p3 = sdf.ScaleUniform3D(p3, shrink)
-	render.ToSTL(p3, "antcap.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(p3, "antcap.stl", render.NewMarchingCubesOctree(300))
 }
 
 //-----------------------------------------------------------------------------

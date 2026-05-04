@@ -301,7 +301,7 @@ func main() {
 		s = sdf.Transform3D(s, sdf.RotateX(-sdf.DtoR(sideDraft)))
 		name := fmt.Sprintf("flask_%d.stl", int(w))
 		s = sdf.ScaleUniform3D(s, shrink)
-		render.ToSTL(s, name, render.NewMarchingCubesOctreeParallel(300))
+		render.ToSTL(s, name, render.NewMarchingCubesOctree(300))
 	}
 
 	pinLugs, err := pinLugs()
@@ -309,14 +309,14 @@ func main() {
 		log.Fatalf("error: %s", err)
 	}
 	pinLugs = sdf.ScaleUniform3D(pinLugs, shrink)
-	render.ToSTL(pinLugs, "pins.stl", render.NewMarchingCubesOctreeParallel(120))
+	render.ToSTL(pinLugs, "pins.stl", render.NewMarchingCubesOctree(120))
 
 	oddSide, err := oddSide(height)
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
 	oddSide = sdf.ScaleUniform3D(oddSide, shrink)
-	render.ToSTL(oddSide, "odd_side.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(oddSide, "odd_side.stl", render.NewMarchingCubesOctree(300))
 }
 
 //-----------------------------------------------------------------------------

@@ -327,25 +327,25 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(ap725, "ap725.stl", render.NewMarchingCubesOctreeParallel(500))
+	render.ToSTL(ap725, "ap725.stl", render.NewMarchingCubesOctree(500))
 
 	ap745, err := ap745Mount()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(ap745, "ap745.stl", render.NewMarchingCubesOctreeParallel(500))
+	render.ToSTL(ap745, "ap745.stl", render.NewMarchingCubesOctree(500))
 
 	ap723h, err := ap723hMount()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(ap723h, "ap723h.stl", render.NewMarchingCubesOctreeParallel(500))
+	render.ToSTL(ap723h, "ap723h.stl", render.NewMarchingCubesOctree(500))
 
 	support, err := ap723hSupport()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(support, "ap723h_support.stl", render.NewMarchingCubesOctreeParallel(500))
+	render.ToSTL(support, "ap723h_support.stl", render.NewMarchingCubesOctree(500))
 
 }
 

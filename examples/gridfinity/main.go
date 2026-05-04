@@ -27,7 +27,7 @@ func main() {
 		Hole:   true,
 	}
 	base := obj.GfBase(&kBase)
-	render.ToSTL(base, "base_4x4.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(base, "base_4x4.stl", render.NewMarchingCubesOctree(300))
 
 	kBody := obj.GfBodyParms{
 		Size:  v3i.Vec{1, 1, 3},
@@ -35,13 +35,13 @@ func main() {
 		Empty: true,
 	}
 	body := obj.GfBody(&kBody)
-	render.ToSTL(body, "body_1x1x3.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(body, "body_1x1x3.stl", render.NewMarchingCubesOctree(300))
 
 	kBody = obj.GfBodyParms{
 		Size: v3i.Vec{1, 2, 1},
 	}
 	body = obj.GfBody(&kBody)
-	render.ToSTL(body, "body_1x2x1.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(body, "body_1x2x1.stl", render.NewMarchingCubesOctree(300))
 
 }
 

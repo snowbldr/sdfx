@@ -98,25 +98,25 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(s, "vent2.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(s, "vent2.stl", render.NewMarchingCubesOctree(300))
 
 	s, err = drain4()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(s, "drain4.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(s, "drain4.stl", render.NewMarchingCubesOctree(300))
 
 	s, err = drain6()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(s, "drain6.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(s, "drain6.stl", render.NewMarchingCubesOctree(300))
 
 	s, err = drain12()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(s, "drain12.stl", render.NewMarchingCubesOctreeParallel(400))
+	render.ToSTL(s, "drain12.stl", render.NewMarchingCubesOctree(400))
 }
 
 //-----------------------------------------------------------------------------

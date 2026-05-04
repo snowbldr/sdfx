@@ -190,25 +190,25 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "pico_cnc.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "pico_cnc.stl", render.NewMarchingCubesOctree(300))
 
 	s, err = serialConverter()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "serial.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "serial.stl", render.NewMarchingCubesOctree(300))
 
 	s, err = keypadPanel()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "keypad_panel.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "keypad_panel.stl", render.NewMarchingCubesOctree(300))
 
 	s, err = penHolder()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "pen_holder.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "pen_holder.stl", render.NewMarchingCubesOctree(300))
 }
 
 //-----------------------------------------------------------------------------

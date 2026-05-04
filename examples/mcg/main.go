@@ -134,7 +134,7 @@ func main() {
 		log.Fatalf("error: %s", err)
 	}
 	s = sdf.ScaleUniform3D(s, shrink)
-	render.ToSTL(s, "mcg.stl", render.NewMarchingCubesOctreeParallel(500))
+	render.ToSTL(s, "mcg.stl", render.NewMarchingCubesOctree(500))
 }
 
 //-----------------------------------------------------------------------------

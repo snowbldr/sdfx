@@ -191,19 +191,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(bushing, "bushing.stl", render.NewMarchingCubesOctreeParallel(100))
+	render.ToSTL(bushing, "bushing.stl", render.NewMarchingCubesOctree(100))
 
 	gears, err := gears()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(gears, "gear.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(gears, "gear.stl", render.NewMarchingCubesOctree(300))
 
 	plate, err := plate()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(plate, "plate.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(plate, "plate.stl", render.NewMarchingCubesOctree(300))
 }
 
 //-----------------------------------------------------------------------------

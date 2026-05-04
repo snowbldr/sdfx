@@ -57,7 +57,7 @@ func BenchmarkParallel200(b *testing.B) {
 	dw := discardW{}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r := NewMarchingCubesOctreeParallel(200)
+		r := NewMarchingCubesOctree(200)
 		r.Render(s, dw)
 	}
 }
@@ -67,7 +67,7 @@ func BenchmarkParallel400(b *testing.B) {
 	dw := discardW{}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r := NewMarchingCubesOctreeParallel(400)
+		r := NewMarchingCubesOctree(400)
 		r.Render(s, dw)
 	}
 }

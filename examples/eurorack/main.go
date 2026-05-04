@@ -443,37 +443,37 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "ar_panel.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "ar_panel.stl", render.NewMarchingCubesOctree(300))
 
 	p, err = powerBoardMount()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "pwr_mount.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "pwr_mount.stl", render.NewMarchingCubesOctree(300))
 
 	p, err = powerPanel()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "pwr_panel.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "pwr_panel.stl", render.NewMarchingCubesOctree(300))
 
 	p, err = powerPanelRouting()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "pwr_panel_routing.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "pwr_panel_routing.stl", render.NewMarchingCubesOctree(300))
 
 	p, err = psuMount()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "psu_mount.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "psu_mount.stl", render.NewMarchingCubesOctree(300))
 
 	p, err = bbPanel()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "bb_panel.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(p, shrink), "bb_panel.stl", render.NewMarchingCubesOctree(300))
 }
 
 //-----------------------------------------------------------------------------

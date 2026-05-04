@@ -59,7 +59,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(c, shrink), "cap.stl", render.NewMarchingCubesOctreeParallel(120))
+	render.ToSTL(sdf.ScaleUniform3D(c, shrink), "cap.stl", render.NewMarchingCubesOctree(120))
 }
 
 //-----------------------------------------------------------------------------

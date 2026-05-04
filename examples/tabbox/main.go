@@ -152,25 +152,25 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "box0_upper.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "box0_upper.stl", render.NewMarchingCubesOctree(300))
 
 	s, err = box0(false)
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "box0_lower.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "box0_lower.stl", render.NewMarchingCubesOctree(300))
 
 	s, err = box1(true)
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "box1_upper.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "box1_upper.stl", render.NewMarchingCubesOctree(300))
 
 	s, err = box1(false)
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "box1_lower.stl", render.NewMarchingCubesOctreeParallel(300))
+	render.ToSTL(sdf.ScaleUniform3D(s, shrink), "box1_lower.stl", render.NewMarchingCubesOctree(300))
 
 }
 

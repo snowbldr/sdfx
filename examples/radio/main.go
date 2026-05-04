@@ -197,13 +197,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(vcapMount, "vc_mount.stl", render.NewMarchingCubesOctreeParallel(500))
+	render.ToSTL(vcapMount, "vc_mount.stl", render.NewMarchingCubesOctree(500))
 
 	ferriteMount, err := ferriteMount()
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(ferriteMount, "fr_mount.stl", render.NewMarchingCubesOctreeParallel(500))
+	render.ToSTL(ferriteMount, "fr_mount.stl", render.NewMarchingCubesOctree(500))
 
 }
 
