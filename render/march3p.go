@@ -50,7 +50,7 @@ import (
 // the overhead of hashing, bucket chains, and GC scanning.
 
 type cacheEntry struct {
-	key uint64  // packed v3i.Vec; 0 = empty sentinel
+	key uint64 // packed v3i.Vec; 0 = empty sentinel
 	val float64
 }
 

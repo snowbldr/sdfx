@@ -83,7 +83,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("error: %s", err)
 	}
-	render.ToSTL(gasCap, "cap.stl", render.NewMarchingCubesUniform(200))
+	render.ToSTL(gasCap, "cap.stl", render.NewMarchingCubesOctree(200))
 }
 
 //-----------------------------------------------------------------------------
