@@ -145,6 +145,36 @@ func Test_Screw_Watertight_Tapered(t *testing.T) {
 	}
 }
 
+// Test_Screw_Watertight_HighTaperHighRes pins the configurations from the
+// screw_assortment example that produced boundary edges on Linux at the
+// example's cells=300 resolution: high-taper screws where the cone narrows
+// far enough that the closest surface r at any query may be much smaller
+// than r_query - threadDepth. Without clamping rEff at rSurfaceMin, the
+// Lipschitz correction underestimates σ_max for those queries and the
+// octree isEmpty check skips cubes that contain surface.
+//
+// Cell count matches the example so the borderline FP regime that
+// surfaces these failures is exercised here too.
+func Test_Screw_Watertight_HighTaperHighRes(t *testing.T) {
+	cases := []screwTestConfig{
+		{"taper_45", 5, 2, 20, 45, 1, 300, "iso"},
+		{"taper_30_coarse", 5, 5, 20, 30, 1, 300, "iso"},
+		{"taper_30_buttress", 5, 2, 20, 30, 1, 300, "buttress"},
+		{"taper_30_left_buttress", 5, 2, 20, 30, -1, 300, "buttress"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			screw := buildScrew(t, c)
+			tris := CollectTriangles(screw, NewMarchingCubesOctree(c.cells))
+			be := CountBoundaryEdges(tris)
+			if be != 0 {
+				t.Errorf("octree mesh has %d boundary edges (want 0 for watertight)", be)
+			}
+			t.Logf("%d tris, %d boundary edges", len(tris), be)
+		})
+	}
+}
+
 func Test_Screw_EndCap_Position(t *testing.T) {
 	// Verify octree and uniform renderers agree on end-cap Z positions.
 	configs := straightScrewConfigs()
