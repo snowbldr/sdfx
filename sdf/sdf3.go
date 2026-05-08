@@ -169,10 +169,14 @@ func TwistExtrude3D(sdf SDF2, height, twist float64) SDF3 {
 	s.sdf = sdf
 	s.height = height / 2
 	s.extrude = TwistExtrude(height, twist)
-	// work out the bounding box
-	bb := sdf.BoundingBox()
-	l := bb.Max.Length()
-	s.bb = Box3{v3.Vec{-l, -l, -s.height}, v3.Vec{l, l, s.height}}
+	// work out the bounding box. The extrusion sweeps the 2D shape's
+	// rotation through [-twist/2, twist/2] (see TwistExtrude in utils.go),
+	// so the AABB is the rotation envelope of the 2D bbox over that
+	// angle range — *not* a full disk, and *not* sized by bb.Max.Length()
+	// which silently undersizes when the shape sits in a quadrant that
+	// makes bb.Min farther from origin than bb.Max.
+	bb2 := twistedBoundingBox2(sdf.BoundingBox(), twist)
+	s.bb = Box3{v3.Vec{bb2.Min.X, bb2.Min.Y, -s.height}, v3.Vec{bb2.Max.X, bb2.Max.Y, s.height}}
 	return &s
 }
 
@@ -195,12 +199,122 @@ func ScaleTwistExtrude3D(sdf SDF2, height, twist float64, scale v2.Vec) SDF3 {
 	s.sdf = sdf
 	s.height = height / 2
 	s.extrude = ScaleTwistExtrude(height, twist, scale)
-	// work out the bounding box
+	// Combined scale + twist: take the union of the original 2D bbox and
+	// its scaled version (so we cover both endpoints of the scale ramp),
+	// then take the rotation envelope of that over the twist range. This
+	// is conservative — the actual swept shape would be tighter because
+	// scale and rotation co-vary along z — but it's a well-defined upper
+	// bound and avoids the previous code's combined undersize-on-Min /
+	// oversize-on-twist bugs.
 	bb := sdf.BoundingBox()
 	bb = bb.Extend(Box2{bb.Min.Mul(scale), bb.Max.Mul(scale)})
-	l := bb.Max.Length()
-	s.bb = Box3{v3.Vec{-l, -l, -s.height}, v3.Vec{l, l, s.height}}
+	bb2 := twistedBoundingBox2(bb, twist)
+	s.bb = Box3{v3.Vec{bb2.Min.X, bb2.Min.Y, -s.height}, v3.Vec{bb2.Max.X, bb2.Max.Y, s.height}}
 	return &s
+}
+
+// twistedBoundingBox2 returns the AABB of a 2D bbox swept through a range
+// of rotations [-twist/2, twist/2] about the origin.
+//
+// Each corner (x, y) of bb traces an arc of radius r = √(x²+y²) starting
+// at angle φ = atan2(y, x) and spanning [φ-twist/2, φ+twist/2]. The arc's
+// extent in x is r if it crosses the +x axis (i.e. some α ≡ 0 mod 2π),
+// else r·max(cos(start), cos(end)); analogously for the other three
+// extents (min x → ±π, max y → +π/2, min y → −π/2). The AABB of the
+// sweep is the per-axis aggregate of those extents over all four corners.
+//
+// Full rotation case (|twist| ≥ 2π) collapses to a centered disk of
+// radius rMax = max corner distance — covering rotations the corners
+// trace through every angle.
+func twistedBoundingBox2(bb Box2, twist float64) Box2 {
+	if math.Abs(twist) >= 2*math.Pi {
+		r := bbCornerMaxRadius(bb)
+		return Box2{Min: v2.Vec{X: -r, Y: -r}, Max: v2.Vec{X: r, Y: r}}
+	}
+	half := math.Abs(twist) / 2
+	corners := [4]v2.Vec{
+		{X: bb.Min.X, Y: bb.Min.Y},
+		{X: bb.Min.X, Y: bb.Max.Y},
+		{X: bb.Max.X, Y: bb.Min.Y},
+		{X: bb.Max.X, Y: bb.Max.Y},
+	}
+	minX, maxX := math.Inf(1), math.Inf(-1)
+	minY, maxY := math.Inf(1), math.Inf(-1)
+	for _, c := range corners {
+		r := c.Length()
+		if r == 0 {
+			if 0 < minX {
+				minX = 0
+			}
+			if 0 > maxX {
+				maxX = 0
+			}
+			if 0 < minY {
+				minY = 0
+			}
+			if 0 > maxY {
+				maxY = 0
+			}
+			continue
+		}
+		phi := math.Atan2(c.Y, c.X)
+		A, B := phi-half, phi+half
+		mx := r * math.Max(math.Cos(A), math.Cos(B))
+		if angleIntervalContains(A, B, 0) {
+			mx = r
+		}
+		mnx := r * math.Min(math.Cos(A), math.Cos(B))
+		if angleIntervalContains(A, B, math.Pi) {
+			mnx = -r
+		}
+		my := r * math.Max(math.Sin(A), math.Sin(B))
+		if angleIntervalContains(A, B, math.Pi/2) {
+			my = r
+		}
+		mny := r * math.Min(math.Sin(A), math.Sin(B))
+		if angleIntervalContains(A, B, -math.Pi/2) {
+			mny = -r
+		}
+		if mx > maxX {
+			maxX = mx
+		}
+		if mnx < minX {
+			minX = mnx
+		}
+		if my > maxY {
+			maxY = my
+		}
+		if mny < minY {
+			minY = mny
+		}
+	}
+	return Box2{Min: v2.Vec{X: minX, Y: minY}, Max: v2.Vec{X: maxX, Y: maxY}}
+}
+
+// bbCornerMaxRadius returns the farthest distance from the origin to any
+// corner of a 2D bbox. (For a rectangle the max radius from a fixed
+// interior or exterior point is always at one of the four corners.)
+func bbCornerMaxRadius(bb Box2) float64 {
+	corners := [4]v2.Vec{
+		{X: bb.Min.X, Y: bb.Min.Y},
+		{X: bb.Min.X, Y: bb.Max.Y},
+		{X: bb.Max.X, Y: bb.Min.Y},
+		{X: bb.Max.X, Y: bb.Max.Y},
+	}
+	var rMax float64
+	for _, c := range corners {
+		if r := c.Length(); r > rMax {
+			rMax = r
+		}
+	}
+	return rMax
+}
+
+// angleIntervalContains returns true if some angle in [A, B] is congruent
+// to target modulo 2π. Requires B ≥ A.
+func angleIntervalContains(A, B, target float64) bool {
+	twoPi := 2 * math.Pi
+	return math.Floor((B-target)/twoPi) >= math.Ceil((A-target)/twoPi)
 }
 
 // Evaluate returns the minimum distance to an extrusion.
