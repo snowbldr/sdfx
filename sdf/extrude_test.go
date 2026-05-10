@@ -2,6 +2,7 @@ package sdf
 
 import (
 	"math"
+	"strconv"
 	"testing"
 
 	v2 "github.com/deadsy/sdfx/vec/v2"
@@ -321,6 +322,32 @@ func Test_ScaleTwistExtrude3D_BboxContainsSurface(t *testing.T) {
 			assertBboxContainsSurface(t, c.name, s, 128)
 		})
 	}
+}
+
+// Non-uniform scale + twist exercises the rotate-then-scale ordering of
+// the inverse map: a "scale-then-rotate" envelope under-sizes the bbox
+// because rotation can swing the input shape's long axis into the
+// dimension getting the larger forward scale.
+func Test_ScaleTwistExtrude3D_BboxContainsSurface_NonUniformScale(t *testing.T) {
+	scales := []v2.Vec{
+		{X: 1.5, Y: 2.5}, // grow, anisotropic — was failing
+		{X: 2.5, Y: 1.5}, // grow, anisotropic, axis-swapped
+		{X: 0.4, Y: 0.7}, // shrink, anisotropic
+		{X: 2.0, Y: 0.5}, // grow one axis, shrink the other
+	}
+	for _, c := range twistCases() {
+		for _, sc := range scales {
+			name := c.name + "_scale_" + ftoa(sc.X) + "x" + ftoa(sc.Y)
+			t.Run(name, func(t *testing.T) {
+				s := ScaleTwistExtrude3D(c.make2D(), c.height, c.twist, sc)
+				assertBboxContainsSurface(t, name, s, 128)
+			})
+		}
+	}
+}
+
+func ftoa(f float64) string {
+	return strconv.FormatFloat(f, 'g', -1, 64)
 }
 
 //-----------------------------------------------------------------------------

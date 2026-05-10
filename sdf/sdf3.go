@@ -199,17 +199,59 @@ func ScaleTwistExtrude3D(sdf SDF2, height, twist float64, scale v2.Vec) SDF3 {
 	s.sdf = sdf
 	s.height = height / 2
 	s.extrude = ScaleTwistExtrude(height, twist, scale)
-	// Combined scale + twist: take the union of the original 2D bbox and
-	// its scaled version (so we cover both endpoints of the scale ramp),
-	// then take the rotation envelope of that over the twist range. This
-	// is conservative — the actual swept shape would be tighter because
-	// scale and rotation co-vary along z — but it's a well-defined upper
-	// bound and avoids the previous code's combined undersize-on-Min /
-	// oversize-on-twist bugs.
+	// Surface at depth z lives at p_xy = diag(forward(z)) · R(−k·z) · q
+	// for q ∈ input bbox, where forward_α(z) = 1/sα(z) is the forward
+	// scale factor and k = twist/height. Rotation happens BEFORE the
+	// (potentially anisotropic) scale, so a "scale-then-rotate" envelope
+	// (e.g. twistedBoundingBox2 of the scale-extended bbox) under-sizes:
+	// rotation can swing the input shape's long axis into the dimension
+	// getting the larger forward factor, multiplying its extent past the
+	// post-scale half-diagonal. Sample z densely and sweep the four input
+	// bbox corners to envelope the actual surface.
 	bb := sdf.BoundingBox()
-	bb = bb.Extend(Box2{bb.Min.Mul(scale), bb.Max.Mul(scale)})
-	bb2 := twistedBoundingBox2(bb, twist)
-	s.bb = Box3{v3.Vec{bb2.Min.X, bb2.Min.Y, -s.height}, v3.Vec{bb2.Max.X, bb2.Max.Y, s.height}}
+	invX := 1 / scale.X
+	invY := 1 / scale.Y
+	mx := (invX - 1) / height
+	my := (invY - 1) / height
+	k := twist / height
+	corners := [4]v2.Vec{
+		{X: bb.Min.X, Y: bb.Min.Y},
+		{X: bb.Max.X, Y: bb.Min.Y},
+		{X: bb.Min.X, Y: bb.Max.Y},
+		{X: bb.Max.X, Y: bb.Max.Y},
+	}
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	const nSamples = 257
+	for i := 0; i < nSamples; i++ {
+		z := -s.height + height*float64(i)/float64(nSamples-1)
+		sx := mx*z + (invX+1)/2
+		sy := my*z + (invY+1)/2
+		fx := 1 / sx
+		fy := 1 / sy
+		ang := k * z
+		cs, sn := math.Cos(ang), math.Sin(ang)
+		for _, q := range corners {
+			px := fx * (q.X*cs + q.Y*sn)
+			py := fy * (-q.X*sn + q.Y*cs)
+			if px < minX {
+				minX = px
+			}
+			if px > maxX {
+				maxX = px
+			}
+			if py < minY {
+				minY = py
+			}
+			if py > maxY {
+				maxY = py
+			}
+		}
+	}
+	s.bb = Box3{
+		Min: v3.Vec{X: minX, Y: minY, Z: -s.height},
+		Max: v3.Vec{X: maxX, Y: maxY, Z: s.height},
+	}
 	return &s
 }
 
