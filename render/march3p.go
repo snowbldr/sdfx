@@ -136,15 +136,17 @@ type mcWorker struct {
 	resolution float64      // size of the smallest octree cube (half the requested mesh resolution)
 	hdiag      []float64    // precomputed half-diagonal length per octree level, for isEmpty checks
 	s          sdf.SDF3     // the SDF being rendered
+	refine     int          // bisection steps per edge crossing (see mcRefineItersDefault)
 	cache      *directCache // per-worker evaluation cache (no sharing, no locks)
 }
 
-func newMCWorker(s sdf.SDF3, origin v3.Vec, resolution float64, levels uint) *mcWorker {
+func newMCWorker(s sdf.SDF3, origin v3.Vec, resolution float64, levels uint, refine int) *mcWorker {
 	w := &mcWorker{
 		origin:     origin,
 		resolution: resolution,
 		hdiag:      make([]float64, levels),
 		s:          s,
+		refine:     refine,
 		cache:      acquireDirectCache(),
 	}
 	// Precompute the half-diagonal distance for cubes at each octree level.
@@ -226,7 +228,7 @@ func (w *mcWorker) processCube(c cube, tris []sdf.Triangle3) []sdf.Triangle3 {
 		c7, d7 := w.evaluate(c.v.Add(v3i.Vec{0, 2, 2}))
 		corners := [8]v3.Vec{c0, c1, c2, c3, c4, c5, c6, c7}
 		values := [8]float64{d0, d1, d2, d3, d4, d5, d6, d7}
-		return mcAppendTriangles(tris, corners, values, 0)
+		return mcAppendTriangles(tris, corners, values, 0, w.s, w.refine)
 	}
 	// Subdivide into 8 child cubes and recurse.
 	n := c.n - 1
@@ -250,7 +252,7 @@ func mcOctreeOffsets(s int) [8]v3i.Vec {
 // mcToTriangles allocates a new slice per cube, which means a heap allocation
 // for every non-empty leaf. This version appends to a caller-owned slice that
 // grows across the entire subtree, amortizing allocation.
-func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float64) []sdf.Triangle3 {
+func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float64, s sdf.SDF3, refine int) []sdf.Triangle3 {
 	// Build the case index from the 8 corner signs.
 	index := 0
 	for i := 0; i < 8; i++ {
@@ -269,7 +271,7 @@ func mcAppendTriangles(tris []sdf.Triangle3, p [8]v3.Vec, v [8]float64, x float6
 		if edges&(1<<uint(i)) != 0 {
 			a := mcPairTable[i][0]
 			b := mcPairTable[i][1]
-			points[i] = mcInterpolate(p[a], p[b], v[a], v[b], x)
+			points[i] = mcInterpolateRefine(p[a], p[b], v[a], v[b], x, s, refine)
 		}
 	}
 	// Emit triangles from the lookup table.
@@ -331,7 +333,7 @@ func collectSubcubes(w *mcWorker, c cube, targetLevel uint) []cube {
 	return cubes
 }
 
-func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Triangle3Writer) {
+func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Triangle3Writer, refine int) {
 	// Pad the bounding box by 1% so the surface doesn't land exactly on
 	// the boundary, which can cause marching cubes to miss edge triangles.
 	bb := s.BoundingBox()
@@ -348,7 +350,7 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 	// Phase 1: a single scout worker traverses the top of the octree to
 	// collect non-empty subcubes as parallel work items. This is sequential
 	// but cheap — it only evaluates cube centers for isEmpty checks.
-	scout := newMCWorker(s, bb.Min, resolution, levels)
+	scout := newMCWorker(s, bb.Min, resolution, levels, refine)
 	topCube := cube{v3i.Vec{0, 0, 0}, levels - 1}
 
 	// Choose a fan-out depth that produces roughly nCPU*8 work items.
@@ -410,7 +412,7 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 		wg.Add(1)
 		go func(wid int) {
 			defer wg.Done()
-			w := newMCWorker(s, bb.Min, resolution, levels)
+			w := newMCWorker(s, bb.Min, resolution, levels, refine)
 			buf := make([]sdf.Triangle3, 0, initialTriCap)
 			for {
 				idx := nextIdx.Add(1) - 1
@@ -464,13 +466,21 @@ func parallelMarchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Tria
 // sampling and parallel processing across all available CPU cores.
 type MarchingCubesOctree struct {
 	meshCells int // number of cells on the longest axis of bounding box
+	refine    int // bisection steps per edge crossing (see mcRefineItersDefault)
 }
 
 // NewMarchingCubesOctree returns a Render3 object.
 func NewMarchingCubesOctree(meshCells int) *MarchingCubesOctree {
 	return &MarchingCubesOctree{
 		meshCells: meshCells,
+		refine:    mcRefineItersDefault,
 	}
+}
+
+// Refine sets the number of bisection steps per edge crossing (0 disables).
+func (r *MarchingCubesOctree) Refine(n int) *MarchingCubesOctree {
+	r.refine = n
+	return r
 }
 
 // Info returns a string describing the rendered volume.
@@ -485,7 +495,7 @@ func (r *MarchingCubesOctree) Info(s sdf.SDF3) string {
 func (r *MarchingCubesOctree) Render(s sdf.SDF3, output sdf.Triangle3Writer) {
 	bbSize := s.BoundingBox().Size()
 	resolution := bbSize.MaxComponent() / float64(r.meshCells)
-	parallelMarchingCubesOctree(s, resolution, output)
+	parallelMarchingCubesOctree(s, resolution, output, r.refine)
 }
 
 //-----------------------------------------------------------------------------

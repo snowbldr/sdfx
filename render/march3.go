@@ -132,7 +132,7 @@ func (l *layerYZ) Get(x, y, z int) float64 {
 
 //-----------------------------------------------------------------------------
 
-func marchingCubes(s sdf.SDF3, box sdf.Box3, step float64, output sdf.Triangle3Writer) {
+func marchingCubes(s sdf.SDF3, box sdf.Box3, step float64, output sdf.Triangle3Writer, refine int) {
 
 	size := box.Size()
 	base := box.Min
@@ -180,7 +180,7 @@ func marchingCubes(s sdf.SDF3, box sdf.Box3, step float64, output sdf.Triangle3W
 					l.Get(1, y, z+1),
 					l.Get(1, y+1, z+1),
 					l.Get(0, y+1, z+1)}
-				output.Write(mcToTriangles(corners, values, 0))
+				output.Write(mcToTriangles(corners, values, 0, s, refine))
 				p.Z += dz
 			}
 			p.Y += dy
@@ -191,7 +191,18 @@ func marchingCubes(s sdf.SDF3, box sdf.Box3, step float64, output sdf.Triangle3W
 
 //-----------------------------------------------------------------------------
 
-func mcToTriangles(p [8]v3.Vec, v [8]float64, x float64) []*sdf.Triangle3 {
+// mcRefineItersDefault is the default number of bisection steps applied to
+// each marching-cubes edge crossing. Linear interpolation between the two
+// corner samples is exact only when the field is linear along the edge:
+// boolean seams kink the field mid-edge, landing the vertex off the true
+// surface by a noticeable fraction of a cell (measured up to ~cell/2 on CSG
+// models — it prints as surface texture and poisons decimation error
+// budgets). Each bisection step halves the bracket and costs one SDF
+// evaluation per surface vertex; 6 steps plus a final secant land within
+// ~1e-3 of a cell. Renderers expose Refine(n) to tune or disable (n=0).
+const mcRefineItersDefault = 6
+
+func mcToTriangles(p [8]v3.Vec, v [8]float64, x float64, s sdf.SDF3, refine int) []*sdf.Triangle3 {
 	// which of the 0..255 patterns do we have?
 	index := 0
 	for i := 0; i < 8; i++ {
@@ -210,7 +221,7 @@ func mcToTriangles(p [8]v3.Vec, v [8]float64, x float64) []*sdf.Triangle3 {
 		if mcEdgeTable[index]&bit != 0 {
 			a := mcPairTable[i][0]
 			b := mcPairTable[i][1]
-			points[i] = mcInterpolate(p[a], p[b], v[a], v[b], x)
+			points[i] = mcInterpolateRefine(p[a], p[b], v[a], v[b], x, s, refine)
 		}
 	}
 	// create the triangles
@@ -232,6 +243,16 @@ func mcToTriangles(p [8]v3.Vec, v [8]float64, x float64) []*sdf.Triangle3 {
 //-----------------------------------------------------------------------------
 
 func mcInterpolate(p1, p2 v3.Vec, v1, v2, x float64) v3.Vec {
+	return mcInterpolateRefine(p1, p2, v1, v2, x, nil, 0)
+}
+
+// mcInterpolateRefine is mcInterpolate plus optional root refinement: when s
+// is non-nil and refine > 0, the linear estimate is replaced by `refine`
+// bisection steps of the true field along the edge, finished with a secant
+// step inside the final bracket. Refinement happens AFTER canonicalization,
+// so the two cubes sharing an edge compute bit-identical vertices and the
+// mesh stays watertight.
+func mcInterpolateRefine(p1, p2 v3.Vec, v1, v2, x float64, s sdf.SDF3, refine int) v3.Vec {
 	// Canonicalize argument order so a shared cube edge interpolated from two
 	// adjacent cubes produces bit-identical results. Adjacent cubes number
 	// the same cube edge with swapped endpoints (e.g. A's edge 1 == B's edge
@@ -268,6 +289,33 @@ func mcInterpolate(p1, p2 v3.Vec, v1, v2, x float64) v3.Vec {
 		t = (x - v1) / (v2 - v1)
 	}
 
+	if s != nil && refine > 0 && !closeToV1 && !closeToV2 {
+		lo, hi := 0.0, 1.0
+		flo, fhi := v1-x, v2-x
+		for k := 0; k < refine; k++ {
+			mid := 0.5 * (lo + hi)
+			fm := s.Evaluate(v3.Vec{
+				X: p1.X + mid*(p2.X-p1.X),
+				Y: p1.Y + mid*(p2.Y-p1.Y),
+				Z: p1.Z + mid*(p2.Z-p1.Z),
+			}) - x
+			if fm == 0 {
+				lo, hi, flo, fhi = mid, mid, 0, 0
+				break
+			}
+			if (fm < 0) == (flo < 0) {
+				lo, flo = mid, fm
+			} else {
+				hi, fhi = mid, fm
+			}
+		}
+		if flo != fhi {
+			t = lo + (hi-lo)*flo/(flo-fhi)
+		} else {
+			t = 0.5 * (lo + hi)
+		}
+	}
+
 	return v3.Vec{
 		p1.X + t*(p2.X-p1.X),
 		p1.Y + t*(p2.Y-p1.Y),
@@ -280,13 +328,21 @@ func mcInterpolate(p1, p2 v3.Vec, v1, v2, x float64) v3.Vec {
 // MarchingCubesUniform renders using marching cubes with uniform space sampling.
 type MarchingCubesUniform struct {
 	meshCells int // number of cells on the longest axis of bounding box. e.g 200
+	refine    int // bisection steps per edge crossing (see mcRefineItersDefault)
 }
 
 // NewMarchingCubesUniform returns a Render3 object.
 func NewMarchingCubesUniform(meshCells int) *MarchingCubesUniform {
 	return &MarchingCubesUniform{
 		meshCells: meshCells,
+		refine:    mcRefineItersDefault,
 	}
+}
+
+// Refine sets the number of bisection steps per edge crossing (0 disables).
+func (r *MarchingCubesUniform) Refine(n int) *MarchingCubesUniform {
+	r.refine = n
+	return r
 }
 
 // Info returns a string describing the rendered volume.
@@ -310,7 +366,7 @@ func (r *MarchingCubesUniform) Render(s sdf.SDF3, output sdf.Triangle3Writer) {
 	bb1Size = bb1Size.Ceil().AddScalar(1)
 	bb1Size = bb1Size.MulScalar(meshInc)
 	bb := sdf.NewBox3(bb0.Center(), bb1Size)
-	marchingCubes(s, bb, meshInc, output)
+	marchingCubes(s, bb, meshInc, output, r.refine)
 	output.Close()
 }
 

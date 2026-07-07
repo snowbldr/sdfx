@@ -39,11 +39,12 @@ type dcache3 struct {
 	resolution float64             // size of smallest octree cube
 	hdiag      []float64           // lookup table of cube half diagonals
 	s          sdf.SDF3            // the SDF3 to be rendered
+	refine     int                 // bisection steps per edge crossing
 	cache      map[v3i.Vec]float64 // cache of distances
 	lock       sync.RWMutex        // lock the the cache during reads/writes
 }
 
-func newDcache3(s sdf.SDF3, origin v3.Vec, resolution float64, n uint) *dcache3 {
+func newDcache3(s sdf.SDF3, origin v3.Vec, resolution float64, n uint, refine int) *dcache3 {
 	// TODO heuristic for initial cache size. Maybe k * (1 << n)^3
 	// Avoiding any resizing of the map seems to be worth 2-5% of speedup.
 	dc := dcache3{
@@ -51,6 +52,7 @@ func newDcache3(s sdf.SDF3, origin v3.Vec, resolution float64, n uint) *dcache3 
 		resolution: resolution,
 		hdiag:      make([]float64, n),
 		s:          s,
+		refine:     refine,
 		cache:      make(map[v3i.Vec]float64),
 	}
 	// build a lut for cube half diagonal lengths
@@ -116,7 +118,7 @@ func (dc *dcache3) processCube(c *cube, output sdf.Triangle3Writer) {
 			corners := [8]v3.Vec{c0, c1, c2, c3, c4, c5, c6, c7}
 			values := [8]float64{d0, d1, d2, d3, d4, d5, d6, d7}
 			// output the triangle(s) for this cube
-			output.Write(mcToTriangles(corners, values, 0))
+			output.Write(mcToTriangles(corners, values, 0, dc.s, dc.refine))
 		} else {
 			// process the sub cubes
 			n := c.n - 1
@@ -137,7 +139,7 @@ func (dc *dcache3) processCube(c *cube, output sdf.Triangle3Writer) {
 //-----------------------------------------------------------------------------
 
 // marchingCubesOctree generates a triangle mesh for an SDF3 using octree subdivision.
-func marchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Triangle3Writer) {
+func marchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Triangle3Writer, refine int) {
 	// Scale the bounding box about the center to make sure the boundaries
 	// aren't on the object surface.
 	bb := s.BoundingBox()
@@ -149,7 +151,7 @@ func marchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Triangle3Wri
 	// how many cube levels for the octree?
 	levels := uint(math.Ceil(math.Log2(longAxis/resolution))) + 1
 	// create the distance cache
-	dc := newDcache3(s, bb.Min, resolution, levels)
+	dc := newDcache3(s, bb.Min, resolution, levels, refine)
 	// process the octree, start at the top level
 	dc.processCube(&cube{v3i.Vec{0, 0, 0}, levels - 1}, output)
 	output.Close()
@@ -160,13 +162,21 @@ func marchingCubesOctree(s sdf.SDF3, resolution float64, output sdf.Triangle3Wri
 // MarchingCubesOctreeSingle renders using marching cubes with octree space sampling.
 type MarchingCubesOctreeSingle struct {
 	meshCells int // number of cells on the longest axis of bounding box. e.g 200
+	refine    int // bisection steps per edge crossing (see mcRefineItersDefault)
 }
 
 // NewMarchingCubesOctreeSingle returns a Render3 object.
 func NewMarchingCubesOctreeSingle(meshCells int) *MarchingCubesOctreeSingle {
 	return &MarchingCubesOctreeSingle{
 		meshCells: meshCells,
+		refine:    mcRefineItersDefault,
 	}
+}
+
+// Refine sets the number of bisection steps per edge crossing (0 disables).
+func (r *MarchingCubesOctreeSingle) Refine(n int) *MarchingCubesOctreeSingle {
+	r.refine = n
+	return r
 }
 
 // Info returns a string describing the rendered volume.
@@ -182,7 +192,7 @@ func (r *MarchingCubesOctreeSingle) Render(s sdf.SDF3, output sdf.Triangle3Write
 	// work out the sampling resolution to use
 	bbSize := s.BoundingBox().Size()
 	resolution := bbSize.MaxComponent() / float64(r.meshCells)
-	marchingCubesOctree(s, resolution, output)
+	marchingCubesOctree(s, resolution, output, r.refine)
 }
 
 //-----------------------------------------------------------------------------
